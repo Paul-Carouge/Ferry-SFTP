@@ -89,6 +89,10 @@ const en = {
   "filePane.deleteSelectedTitle": "Delete {{count}} items?",
   "filePane.deleteSelected": "Delete {{count}} items",
   "filePane.sendSelectedToOtherSide": "Send {{count}} items to other side",
+  "filePane.columnName": "Name",
+  "filePane.columnSize": "Size",
+  "filePane.columnModified": "Last modified",
+  "filePane.selectedCount": "{{count}} selected",
 
   "conflict.title": "File already exists",
   "conflict.fileExists": "A file already exists at this destination. What would you like to do?",
@@ -227,6 +231,10 @@ const fr: Record<TranslationKey, string> = {
   "filePane.deleteSelectedTitle": "Supprimer {{count}} éléments ?",
   "filePane.deleteSelected": "Supprimer {{count}} éléments",
   "filePane.sendSelectedToOtherSide": "Envoyer {{count}} éléments vers l'autre côté",
+  "filePane.columnName": "Nom",
+  "filePane.columnSize": "Taille",
+  "filePane.columnModified": "Dernière modification",
+  "filePane.selectedCount": "{{count}} sélectionné(s)",
 
   "conflict.title": "Le fichier existe déjà",
   "conflict.fileExists": "Un fichier existe déjà à cette destination. Que voulez-vous faire ?",

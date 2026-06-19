@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
 import { open as openDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
-import { FolderPlus, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, ChevronUp, FolderPlus, RefreshCw, Search } from "lucide-react";
 import { Breadcrumbs } from "@/components/browser/Breadcrumbs";
 import { FileRow } from "@/components/browser/FileRow";
 import { ContextMenu, type ContextMenuItem } from "@/components/common/ContextMenu";
@@ -98,8 +98,11 @@ export function FilePane({
   const [renaming, setRenaming] = useState<RemoteEntry | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<RemoteEntry[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [sortKey, setSortKey] = useState<"name" | "size" | "modified">("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useStaggerOnChange(listRef, [entries, filter]);
 
@@ -261,19 +264,51 @@ export function FilePane({
     }
   }
 
-  async function transferEntry(payload: DragPayload) {
+  async function transferEntry(payload: DragPayload, destDir: string) {
     try {
       if (side === "local" && payload.side === "remote") {
-        // dropping a remote file onto the local pane -> download
-        const localTarget = joinPath(cwd, payload.name);
-        await onTransfer("download", payload.path, localTarget, payload.isDir, payload.size);
+        await onTransfer("download", payload.path, joinPath(destDir, payload.name), payload.isDir, payload.size);
       } else if (side === "remote" && payload.side === "local") {
-        const remoteTarget = joinPath(cwd, payload.name);
-        await onTransfer("upload", payload.path, remoteTarget, payload.isDir, payload.size);
+        await onTransfer("upload", payload.path, joinPath(destDir, payload.name), payload.isDir, payload.size);
       }
     } catch (err) {
       pushToast(t("toast.couldntStartTransfer", { error: String(err) }), "error");
     }
+  }
+
+  function toggleSort(key: "name" | "size" | "modified") {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  function handleRowDragOver(e: DragEvent, entry: RemoteEntry) {
+    if (!entry.isDir) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTarget(entry.path);
+    setDragOver(false);
+  }
+
+  function handleRowDragLeave(e: DragEvent) {
+    e.stopPropagation();
+    setDropTarget(null);
+  }
+
+  function handleRowDrop(e: DragEvent, entry: RemoteEntry) {
+    if (!entry.isDir) return;
+    e.stopPropagation();
+    e.preventDefault();
+    setDropTarget(null);
+    setDragOver(false);
+    const raw = e.dataTransfer.getData(DND_MIME);
+    if (!raw) return;
+    const payload: DragPayload = JSON.parse(raw);
+    if (payload.side === side) return;
+    void transferEntry(payload, entry.path);
   }
 
   function handleDragStart(e: DragEvent, entry: RemoteEntry) {
@@ -296,7 +331,7 @@ export function FilePane({
     if (!raw) return;
     const payload: DragPayload = JSON.parse(raw);
     if (payload.side === side) return;
-    void transferEntry(payload);
+    void transferEntry(payload, cwd);
   }
 
   const quickFiltered = filter
@@ -304,6 +339,15 @@ export function FilePane({
     : entries;
   const filtered = filter ? (searchResults ?? quickFiltered) : entries;
   const isSearching = filter.trim().length > 0 && searchResults !== null;
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    let cmp = 0;
+    if (sortKey === "name") cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    else if (sortKey === "size") cmp = (a.size ?? 0) - (b.size ?? 0);
+    else cmp = (a.modified ?? 0) - (b.modified ?? 0);
+    return sortDir === "asc" ? cmp : -cmp;
+  });
 
   function rowMenuItems(entry: RemoteEntry): ContextMenuItem[] {
     return [
@@ -406,6 +450,30 @@ export function FilePane({
         {searching && <span className="shrink-0 text-xs text-foreground-muted">{t("filePane.searching")}</span>}
       </div>
 
+      <div className="grid shrink-0 grid-cols-[1fr_90px_140px] gap-3 border-b border-border px-4 py-1">
+        <button
+          onClick={() => toggleSort("name")}
+          className="flex items-center gap-1 text-left text-xs font-medium text-foreground-muted hover:text-foreground"
+        >
+          {t("filePane.columnName")}
+          {sortKey === "name" && (sortDir === "asc" ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />)}
+        </button>
+        <button
+          onClick={() => toggleSort("size")}
+          className="flex items-center justify-end gap-1 text-right text-xs font-medium text-foreground-muted hover:text-foreground"
+        >
+          {sortKey === "size" && (sortDir === "asc" ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />)}
+          {t("filePane.columnSize")}
+        </button>
+        <button
+          onClick={() => toggleSort("modified")}
+          className="flex items-center gap-1 text-left text-xs font-medium text-foreground-muted hover:text-foreground"
+        >
+          {t("filePane.columnModified")}
+          {sortKey === "modified" && (sortDir === "asc" ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />)}
+        </button>
+      </div>
+
       <div
         ref={listRef}
         className="flex-1 overflow-y-auto p-1.5"
@@ -418,10 +486,10 @@ export function FilePane({
           <p className="p-3 text-sm text-foreground-muted">{t("filePane.loading")}</p>
         ) : error ? (
           <p className="p-3 text-sm text-danger">{error}</p>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <p className="p-3 text-sm text-foreground-muted">{t("filePane.emptyFolder")}</p>
         ) : (
-          filtered.map((entry) => {
+          sorted.map((entry) => {
             const dir = parentPath(entry.path);
             const subPath =
               isSearching && dir !== cwd
@@ -435,15 +503,25 @@ export function FilePane({
                 entry={entry}
                 selected={selected.has(entry.path)}
                 subPath={subPath}
+                isDropTarget={dropTarget === entry.path}
                 onClick={(e) => toggleSelected(entry.path, !(e.metaKey || e.ctrlKey))}
                 onDoubleClick={() => navigate(entry)}
                 onContextMenu={(e) => openRowMenu(e, entry)}
                 onDragStart={(e) => handleDragStart(e, entry)}
+                onDrop={entry.isDir ? (e) => handleRowDrop(e, entry) : undefined}
+                onDragOver={entry.isDir ? (e) => handleRowDragOver(e, entry) : undefined}
+                onDragLeave={entry.isDir ? handleRowDragLeave : undefined}
               />
             );
           })
         )}
       </div>
+
+      {selected.size > 0 && (
+        <div className="shrink-0 border-t border-border px-3 py-1.5 text-xs text-foreground-muted">
+          {t("filePane.selectedCount", { count: selected.size })}
+        </div>
+      )}
 
       {menu && (
         <ContextMenu
