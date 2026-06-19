@@ -304,34 +304,43 @@ export function FilePane({
     e.preventDefault();
     setDropTarget(null);
     setDragOver(false);
-    const raw = e.dataTransfer.getData(DND_MIME);
-    if (!raw) return;
-    const payload: DragPayload = JSON.parse(raw);
-    if (payload.side === side) return;
-    void transferEntry(payload, entry.path);
+    for (const payload of parseDragPayloads(e)) {
+      if (payload.side === side) return;
+      void transferEntry(payload, entry.path);
+    }
   }
 
   function handleDragStart(e: DragEvent, entry: RemoteEntry) {
-    const payload: DragPayload = {
+    const dragEntries =
+      selected.size > 1 && selected.has(entry.path)
+        ? filtered.filter((en) => selected.has(en.path))
+        : [entry];
+    const payloads: DragPayload[] = dragEntries.map((en) => ({
       side,
       connectionId,
-      path: entry.path,
-      name: entry.name,
-      isDir: entry.isDir,
-      size: entry.size,
-    };
-    e.dataTransfer.setData(DND_MIME, JSON.stringify(payload));
+      path: en.path,
+      name: en.name,
+      isDir: en.isDir,
+      size: en.size,
+    }));
+    e.dataTransfer.setData(DND_MIME, JSON.stringify(payloads));
     e.dataTransfer.effectAllowed = "copy";
+  }
+
+  function parseDragPayloads(e: DragEvent): DragPayload[] {
+    const raw = e.dataTransfer.getData(DND_MIME);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as DragPayload[]) : [parsed as DragPayload];
   }
 
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    const raw = e.dataTransfer.getData(DND_MIME);
-    if (!raw) return;
-    const payload: DragPayload = JSON.parse(raw);
-    if (payload.side === side) return;
-    void transferEntry(payload, cwd);
+    for (const payload of parseDragPayloads(e)) {
+      if (payload.side === side) return;
+      void transferEntry(payload, cwd);
+    }
   }
 
   const quickFiltered = filter
