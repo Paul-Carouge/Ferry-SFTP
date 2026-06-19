@@ -44,8 +44,7 @@ export function DualPane({
           const name = localPath.split(/[/\\]/).pop() ?? localPath;
           transfersApi
             .enqueueUpload(session.id, localPath, joinPath(cwd, name))
-            .then(() => pushToast(`Uploading ${name}`, "success"))
-            .catch((err) => pushToast(`Upload failed: ${err}`, "error"));
+            .catch((err) => pushToast(`Couldn't start upload: ${err}`, "error"));
         }
       })
       .then((fn) => {
@@ -76,9 +75,11 @@ export function DualPane({
       <div style={{ width: `${splitPercent}%` }} className="flex min-w-0">
         <FilePane
           side="local"
+          transferConnectionId={session.id}
           initialPath={localHome}
           title="This computer"
           store={useLocalPaneStore}
+          peerStore={remoteStore}
           onPreview={(entry) => setPreview({ side: "local", entry })}
         />
       </div>
@@ -90,9 +91,11 @@ export function DualPane({
         <FilePane
           side="remote"
           connectionId={session.id}
+          transferConnectionId={session.id}
           initialPath={session.defaultRemotePath || "/"}
           title={session.label}
           store={remoteStore}
+          peerStore={useLocalPaneStore}
           onPreview={(entry) => setPreview({ side: "remote", entry })}
         />
       </div>
