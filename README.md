@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+<div align="center">
+  <img src="src-tauri/icons/128x128@2x.png" width="96" alt="Ferry icon" />
 
-## Getting Started
+  # Ferry
 
-First, run the development server:
+  A modern, native SFTP client — built on Tauri 2 and Next.js.
+</div>
+
+<br />
+
+Ferry is a lightweight desktop SFTP client with a dual-pane file manager,
+drag-and-drop transfers, and a real Rust backend talking SFTP over libssh2 —
+no Electron, no bundled browser runtime.
+
+## Features
+
+- **Dual-pane browser** — local and remote file systems side by side, with
+  breadcrumb navigation, search (including inside subfolders), and a
+  right-click context menu for the usual file operations.
+- **Drag and drop** — drag files between panes to upload/download, or drop
+  files in from the OS file manager directly onto the remote pane.
+- **Transfer queue** — uploads and downloads run through a per-connection
+  queue with live progress, pause/resume, and cancel.
+- **Connection profiles** — save servers with name, color, and favorite
+  status. Passwords and key passphrases are stored in the OS keychain
+  (Keychain / Credential Manager / Secret Service), never in plain text.
+- **File preview** — quick look at text and image files without leaving
+  the app.
+- **Light and dark themes**, matching your OS by default.
+
+## Tech stack
+
+| Layer    | Tech |
+|----------|------|
+| Backend  | Rust, [Tauri 2](https://tauri.app), [ssh2](https://docs.rs/ssh2) (libssh2, vendored OpenSSL) |
+| Frontend | [Next.js](https://nextjs.org) (App Router, static export), TypeScript |
+| Styling  | Tailwind CSS v4 |
+| State    | Zustand |
+| Animation| GSAP |
+
+## Getting started
+
+### Prerequisites
+
+- [pnpm](https://pnpm.io)
+- [Rust](https://www.rust-lang.org/tools/install) + Cargo
+- `perl` (needed to build vendored OpenSSL on first compile)
+
+### Install
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Run in development
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm tauri dev    # full desktop app, hot reload
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Or, for frontend-only work without the Tauri window:
 
-## Learn More
+```bash
+pnpm dev          # Next.js dev server at localhost:3000
+```
 
-To learn more about Next.js, take a look at the following resources:
+### Build a release bundle
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm build        # Next.js static export -> ./out
+pnpm tauri build  # native .app/.dmg/.exe/etc.
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Checks
 
-## Deploy on Vercel
+```bash
+pnpm lint                     # eslint
+npx tsc --noEmit               # type-check
+cd src-tauri && cargo check    # Rust compile check
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Project structure
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/                  Next.js frontend
+  components/         browser, connection, transfers, preview UI
+  lib/                Tauri command wrappers, Zustand stores, helpers
+src-tauri/src/        Rust backend
+  sftp/               SFTP session + commands (ssh2/libssh2)
+  localfs/            local filesystem commands
+  store/              connection profiles + keychain secrets
+  transfers/          upload/download queue
+```
+
+See [`CLAUDE.md`](./CLAUDE.md) for a deeper architecture walkthrough.
