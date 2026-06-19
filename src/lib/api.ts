@@ -65,6 +65,25 @@ export interface TransferRecord {
   error: string | null;
   speedBps: number;
   createdAt: number;
+  jobId: string | null;
+}
+
+export interface TransferJob {
+  id: string;
+  connectionId: string;
+  direction: TransferDirection;
+  rootLocalPath: string;
+  rootRemotePath: string;
+  totalFiles: number;
+  totalBytes: number;
+  createdAt: number;
+}
+
+export interface TransferPlanItem {
+  localPath: string;
+  remotePath: string;
+  size: number;
+  isDir: boolean;
 }
 
 // --- Connection profile store ---
@@ -104,15 +123,18 @@ export interface ConnectInput {
   password?: string | null;
   keyPath?: string | null;
   passphrase?: string | null;
+  /** Saved-profile id, enabling host-key TOFU persistence. */
+  profileId?: string | null;
+  /** Set true after the user accepts a first-time host-key trust prompt. */
+  trustHostKey?: boolean;
 }
 
-export interface ConnectResult {
-  connectionId: string;
-  homeDir: string;
-}
+export type ConnectOutcome =
+  | { kind: "connected"; connectionId: string; homeDir: string }
+  | { kind: "hostKeyPrompt"; fingerprint: string };
 
 export const sftpApi = {
-  connect: (input: ConnectInput) => invoke<ConnectResult>("sftp_connect", { input }),
+  connect: (input: ConnectInput) => invoke<ConnectOutcome>("sftp_connect", { input }),
   disconnect: (connectionId: string) => invoke<void>("sftp_disconnect", { connectionId }),
   listDir: (connectionId: string, path: string) =>
     invoke<RemoteEntry[]>("sftp_list_dir", { connectionId, path }),
@@ -141,10 +163,23 @@ export const transfersApi = {
     invoke<string>("transfer_enqueue_upload", { connectionId, localPath, remotePath }),
   enqueueDownload: (connectionId: string, remotePath: string, localPath: string) =>
     invoke<string>("transfer_enqueue_download", { connectionId, remotePath, localPath }),
+  planFolder: (connectionId: string, direction: TransferDirection, localRoot: string, remoteRoot: string) =>
+    invoke<TransferPlanItem[]>("transfer_plan_folder", {
+      connectionId,
+      direction,
+      localRoot,
+      remoteRoot,
+    }),
+  checkConflicts: (connectionId: string, direction: TransferDirection, items: TransferPlanItem[]) =>
+    invoke<string[]>("transfer_check_conflicts", { connectionId, direction, items }),
+  enqueueResolved: (connectionId: string, direction: TransferDirection, items: TransferPlanItem[]) =>
+    invoke<string>("transfer_enqueue_resolved", { connectionId, direction, items }),
   pause: (id: string) => invoke<void>("transfer_pause", { id }),
   resume: (id: string) => invoke<void>("transfer_resume", { id }),
   cancel: (id: string) => invoke<void>("transfer_cancel", { id }),
   list: () => invoke<TransferRecord[]>("transfer_list"),
+  jobList: () => invoke<TransferJob[]>("transfer_job_list"),
+  cancelJob: (jobId: string) => invoke<void>("transfer_cancel_job", { jobId }),
 };
 
 // --- Events ---

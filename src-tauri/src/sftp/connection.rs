@@ -55,8 +55,20 @@ impl KeyboardInteractivePrompt for PasswordPrompter<'_> {
     }
 }
 
+/// SHA-256 fingerprint of a session's host key, formatted as lowercase hex.
+/// Uses libssh2's own digest (no extra hashing crate). Returns `None` only
+/// if the server somehow exposed no host key.
+pub fn fingerprint_hex(session: &Session) -> Option<String> {
+    session
+        .host_key_hash(ssh2::HashType::Sha256)
+        .map(|bytes| bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 impl SftpConnection {
-    pub fn connect(host: &str, port: u16, username: &str, auth: Auth) -> AppResult<Self> {
+    /// TCP connect + SSH handshake, with no authentication yet — so the
+    /// caller can inspect the host key fingerprint (TOFU) before committing
+    /// credentials.
+    pub fn handshake_only(host: &str, port: u16) -> AppResult<Session> {
         let tcp = TcpStream::connect((host, port))?;
         tcp.set_read_timeout(Some(Duration::from_secs(30)))?;
         tcp.set_write_timeout(Some(Duration::from_secs(30)))?;
@@ -64,7 +76,19 @@ impl SftpConnection {
         let mut session = Session::new().map_err(AppError::Ssh)?;
         session.set_tcp_stream(tcp);
         session.handshake().map_err(AppError::Ssh)?;
+        Ok(session)
+    }
 
+    /// Single-call connect (handshake + auth), kept for completeness; the
+    /// command layer uses the split form to interpose a host-key check.
+    #[allow(dead_code)]
+    pub fn connect(host: &str, port: u16, username: &str, auth: Auth) -> AppResult<Self> {
+        let session = Self::handshake_only(host, port)?;
+        Self::finish_connect(session, username, auth)
+    }
+
+    /// Authenticates an already-handshaked session and opens SFTP.
+    pub fn finish_connect(session: Session, username: &str, auth: Auth) -> AppResult<Self> {
         match auth {
             Auth::Password(password) => {
                 let methods = session.auth_methods(username).unwrap_or("");

@@ -53,6 +53,14 @@ const en = {
   "connItem.edit": "Edit",
   "connItem.delete": "Delete",
 
+  "hostKey.trustTitle": "Verify host identity",
+  "hostKey.trustDesc": "You're connecting to {{host}} for the first time. Confirm its key fingerprint to continue.",
+  "hostKey.fingerprint": "Key fingerprint",
+  "hostKey.trust": "Trust & connect",
+  "hostKey.cancel": "Cancel",
+  "hostKey.mismatchTitle": "Host key changed — possible attack",
+  "hostKey.mismatchDesc": "The server's key doesn't match the one previously trusted. Someone may be impersonating it. Connection blocked.",
+
   "emptyState.noConnection": "No active connection",
   "emptyState.noConnectionDesc": "Connect to a server from the sidebar to start browsing files.",
 
@@ -77,15 +85,26 @@ const en = {
   "filePane.folderNameLabel": "Folder name",
   "filePane.create": "Create",
   "filePane.saveAsTitle": "Save {{name}} as…",
+  "filePane.chooseDestinationTitle": "Choose destination folder",
+  "filePane.deleteSelectedTitle": "Delete {{count}} items?",
+  "filePane.deleteSelected": "Delete {{count}} items",
+  "filePane.sendSelectedToOtherSide": "Send {{count}} items to other side",
+
+  "conflict.title": "File already exists",
+  "conflict.fileExists": "A file already exists at this destination. What would you like to do?",
+  "conflict.skip": "Skip",
+  "conflict.overwrite": "Overwrite",
+  "conflict.rename": "Rename",
+  "conflict.applyToAll": "Apply to all remaining conflicts",
 
   "toast.searchFailed": "Search failed: {{error}}",
   "toast.couldntOpen": "Couldn't open {{path}}",
   "toast.couldntCreateFolder": "Couldn't create folder: {{error}}",
   "toast.couldntRename": "Couldn't rename: {{error}}",
   "toast.couldntDelete": "Couldn't delete: {{error}}",
-  "toast.folderTransferUnsupported": "Folder transfers aren't supported yet — only files.",
   "toast.couldntStartTransfer": "Couldn't start transfer: {{error}}",
   "toast.couldntStartUpload": "Couldn't start upload: {{error}}",
+  "toast.batchDeletePartialFail": "{{failed}} of {{total}} deletions failed",
 
   "transfers.inProgress": "{{count}} transfer{{s}} in progress",
   "transfers.total": "{{count}} transfer{{s}}",
@@ -97,6 +116,7 @@ const en = {
   "transfers.pause": "Pause",
   "transfers.resume": "Resume",
   "transfers.cancel": "Cancel",
+  "transfers.jobProgress": "{{done}}/{{total}} files",
 
   "settings.title": "Settings",
   "settings.language": "Language",
@@ -104,6 +124,14 @@ const en = {
   "settings.themeLight": "Light",
   "settings.themeDark": "Dark",
   "settings.close": "Close",
+  "settings.updates": "Updates",
+
+  "update.available": "Update available — v{{version}}",
+  "update.checking": "Checking…",
+  "update.install": "Install and restart",
+  "update.installing": "Installing…",
+  "update.checkNow": "Check for updates",
+  "update.upToDate": "You're up to date",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -163,6 +191,14 @@ const fr: Record<TranslationKey, string> = {
   "connItem.edit": "Modifier",
   "connItem.delete": "Supprimer",
 
+  "hostKey.trustTitle": "Vérifier l'identité du serveur",
+  "hostKey.trustDesc": "Vous vous connectez à {{host}} pour la première fois. Confirmez l'empreinte de sa clé pour continuer.",
+  "hostKey.fingerprint": "Empreinte de la clé",
+  "hostKey.trust": "Faire confiance et connecter",
+  "hostKey.cancel": "Annuler",
+  "hostKey.mismatchTitle": "Clé du serveur modifiée — attaque possible",
+  "hostKey.mismatchDesc": "La clé du serveur ne correspond pas à celle approuvée précédemment. Quelqu'un l'usurpe peut-être. Connexion bloquée.",
+
   "emptyState.noConnection": "Aucune connexion active",
   "emptyState.noConnectionDesc": "Connectez-vous à un serveur depuis la barre latérale pour parcourir des fichiers.",
 
@@ -187,15 +223,26 @@ const fr: Record<TranslationKey, string> = {
   "filePane.folderNameLabel": "Nom du dossier",
   "filePane.create": "Créer",
   "filePane.saveAsTitle": "Enregistrer {{name}} sous…",
+  "filePane.chooseDestinationTitle": "Choisir le dossier de destination",
+  "filePane.deleteSelectedTitle": "Supprimer {{count}} éléments ?",
+  "filePane.deleteSelected": "Supprimer {{count}} éléments",
+  "filePane.sendSelectedToOtherSide": "Envoyer {{count}} éléments vers l'autre côté",
+
+  "conflict.title": "Le fichier existe déjà",
+  "conflict.fileExists": "Un fichier existe déjà à cette destination. Que voulez-vous faire ?",
+  "conflict.skip": "Ignorer",
+  "conflict.overwrite": "Remplacer",
+  "conflict.rename": "Renommer",
+  "conflict.applyToAll": "Appliquer à tous les conflits restants",
 
   "toast.searchFailed": "Recherche échouée : {{error}}",
   "toast.couldntOpen": "Impossible d'ouvrir {{path}}",
   "toast.couldntCreateFolder": "Impossible de créer le dossier : {{error}}",
   "toast.couldntRename": "Impossible de renommer : {{error}}",
   "toast.couldntDelete": "Impossible de supprimer : {{error}}",
-  "toast.folderTransferUnsupported": "Le transfert de dossiers n'est pas encore pris en charge — fichiers uniquement.",
   "toast.couldntStartTransfer": "Impossible de démarrer le transfert : {{error}}",
   "toast.couldntStartUpload": "Impossible de démarrer l'envoi : {{error}}",
+  "toast.batchDeletePartialFail": "{{failed}} sur {{total}} suppressions ont échoué",
 
   "transfers.inProgress": "{{count}} transfert{{s}} en cours",
   "transfers.total": "{{count}} transfert{{s}}",
@@ -207,6 +254,7 @@ const fr: Record<TranslationKey, string> = {
   "transfers.pause": "Pause",
   "transfers.resume": "Reprendre",
   "transfers.cancel": "Annuler",
+  "transfers.jobProgress": "{{done}}/{{total}} fichiers",
 
   "settings.title": "Paramètres",
   "settings.language": "Langue",
@@ -214,6 +262,14 @@ const fr: Record<TranslationKey, string> = {
   "settings.themeLight": "Clair",
   "settings.themeDark": "Sombre",
   "settings.close": "Fermer",
+  "settings.updates": "Mises à jour",
+
+  "update.available": "Mise à jour disponible — v{{version}}",
+  "update.checking": "Vérification…",
+  "update.install": "Installer et redémarrer",
+  "update.installing": "Installation…",
+  "update.checkNow": "Vérifier les mises à jour",
+  "update.upToDate": "Vous êtes à jour",
 };
 
 export const translations = { en, fr } satisfies Record<string, Record<TranslationKey, string>>;

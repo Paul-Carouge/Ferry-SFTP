@@ -28,6 +28,11 @@ pub struct ConnectionProfile {
     pub favorite: bool,
     pub created_at: i64,
     pub last_connected_at: Option<i64>,
+    /// SHA-256 fingerprint of the server's host key, trusted on first
+    /// connect (TOFU). `#[serde(default)]` so profiles saved before this
+    /// field existed still deserialize.
+    #[serde(default)]
+    pub host_key_fingerprint: Option<String>,
 }
 
 fn store_path(app: &AppHandle) -> AppResult<std::path::PathBuf> {
@@ -87,4 +92,27 @@ pub fn touch_last_connected(app: &AppHandle, id: &str, timestamp_ms: i64) -> App
     }
     persist(app, &profiles)?;
     Ok(profiles)
+}
+
+pub fn set_host_key_fingerprint(
+    app: &AppHandle,
+    id: &str,
+    fingerprint: String,
+) -> AppResult<Vec<ConnectionProfile>> {
+    let mut profiles = load(app)?;
+    if let Some(existing) = profiles.iter_mut().find(|p| p.id == id) {
+        existing.host_key_fingerprint = Some(fingerprint);
+    } else {
+        return Err(AppError::NotFound(format!("connection profile {id}")));
+    }
+    persist(app, &profiles)?;
+    Ok(profiles)
+}
+
+pub fn host_key_fingerprint_for(app: &AppHandle, id: &str) -> Option<String> {
+    load(app)
+        .ok()?
+        .into_iter()
+        .find(|p| p.id == id)
+        .and_then(|p| p.host_key_fingerprint)
 }

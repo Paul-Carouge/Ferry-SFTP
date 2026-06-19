@@ -1,6 +1,7 @@
-use super::connection::{Auth, RemoteEntry, SftpConnection};
+use super::connection::{fingerprint_hex, Auth, RemoteEntry, SftpConnection};
 use super::manager::SftpManager;
 use crate::error::{AppError, AppResult};
+use crate::store;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -21,13 +22,27 @@ pub struct ConnectInput {
     pub password: Option<String>,
     pub key_path: Option<String>,
     pub passphrase: Option<String>,
+    /// Saved-profile id, if connecting from a saved profile — used to look
+    /// up / store the trusted host key fingerprint (TOFU). `None` for ad-hoc
+    /// quick connects, which skip host-key persistence.
+    pub profile_id: Option<String>,
+    /// Set true on the second connect call, after the user accepted the
+    /// first-time host-key trust prompt.
+    pub trust_host_key: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectResult {
-    pub connection_id: String,
-    pub home_dir: String,
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ConnectOutcome {
+    Connected {
+        connection_id: String,
+        home_dir: String,
+    },
+    /// First connection to this profile's host — frontend must show a trust
+    /// prompt, then re-call with `trustHostKey: true`.
+    HostKeyPrompt {
+        fingerprint: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,12 +64,24 @@ fn emit_status(app: &AppHandle, connection_id: &str, state: &str, message: Optio
     );
 }
 
+/// Result of the blocking handshake+verify+auth step, kept off the
+/// `Session` type so nothing non-`Send`-sensitive crosses the await point.
+enum HandshakeOutcome {
+    /// Authenticated. `store_fingerprint` is `Some` when a first-time TOFU
+    /// fingerprint should be persisted to the profile after success.
+    Connected(SftpConnection, Option<String>),
+    /// First time seeing this host — prompt the user.
+    Prompt(String),
+    /// Stored fingerprint did not match the server's.
+    Mismatch { expected: String, actual: String },
+}
+
 #[tauri::command]
 pub async fn sftp_connect(
     app: AppHandle,
     manager: State<'_, SftpManager>,
     input: ConnectInput,
-) -> AppResult<ConnectResult> {
+) -> AppResult<ConnectOutcome> {
     let connection_id = uuid::Uuid::new_v4().to_string();
     emit_status(&app, &connection_id, "connecting", None);
 
@@ -71,24 +98,76 @@ pub async fn sftp_connect(
     };
 
     let host = input.host;
+    let host_for_error = host.clone();
     let port = input.port;
     let username = input.username;
+    // Only saved profiles carry a trust anchor; quick connects skip TOFU.
+    let stored_fingerprint = input
+        .profile_id
+        .as_ref()
+        .and_then(|id| store::host_key_fingerprint_for(&app, id));
+    let trust_requested = input.trust_host_key.unwrap_or(false);
+    let has_profile = input.profile_id.is_some();
 
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        SftpConnection::connect(&host, port, &username, auth)
+    let result = tauri::async_runtime::spawn_blocking(move || -> AppResult<HandshakeOutcome> {
+        let session = SftpConnection::handshake_only(&host, port)?;
+        let fingerprint = fingerprint_hex(&session)
+            .ok_or_else(|| AppError::Other("server provided no host key".into()))?;
+
+        match &stored_fingerprint {
+            Some(expected) if expected != &fingerprint => {
+                return Ok(HandshakeOutcome::Mismatch {
+                    expected: expected.clone(),
+                    actual: fingerprint,
+                });
+            }
+            // No stored fingerprint, on a saved profile, not yet trusted:
+            // ask the user before sending credentials.
+            None if has_profile && !trust_requested => {
+                return Ok(HandshakeOutcome::Prompt(fingerprint));
+            }
+            _ => {}
+        }
+
+        let conn = SftpConnection::finish_connect(session, &username, auth)?;
+        // Persist the fingerprint only on a first-time trust acceptance.
+        let to_store = if has_profile && stored_fingerprint.is_none() {
+            Some(fingerprint)
+        } else {
+            None
+        };
+        Ok(HandshakeOutcome::Connected(conn, to_store))
     })
     .await
     .map_err(|e| AppError::Other(e.to_string()))?;
 
     match result {
-        Ok(conn) => {
+        Ok(HandshakeOutcome::Connected(conn, to_store)) => {
             let home_dir = conn.home_dir().to_string();
             manager.insert(connection_id.clone(), conn);
+            if let (Some(fingerprint), Some(id)) = (to_store, input.profile_id.as_ref()) {
+                let _ = store::set_host_key_fingerprint(&app, id, fingerprint);
+            }
             emit_status(&app, &connection_id, "connected", None);
-            Ok(ConnectResult {
+            Ok(ConnectOutcome::Connected {
                 connection_id,
                 home_dir,
             })
+        }
+        Ok(HandshakeOutcome::Prompt(fingerprint)) => {
+            // Not connected; clear the transient "connecting" status so the UI
+            // doesn't show a stuck spinner behind the trust dialog.
+            emit_status(&app, &connection_id, "disconnected", None);
+            Ok(ConnectOutcome::HostKeyPrompt { fingerprint })
+        }
+        Ok(HandshakeOutcome::Mismatch { expected, actual }) => {
+            let err = AppError::HostKeyMismatch {
+                host: host_for_error,
+                expected,
+                actual,
+            };
+            emit_status(&app, &connection_id, "error", Some(err.to_string()));
+            Err(err)
         }
         Err(e) => {
             emit_status(&app, &connection_id, "error", Some(e.to_string()));

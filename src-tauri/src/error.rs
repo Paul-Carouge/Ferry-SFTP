@@ -14,6 +14,12 @@ pub enum AppError {
     NotFound(String),
     #[error("invalid input: {0}")]
     InvalidInput(String),
+    #[error("host key mismatch for {host}: expected {expected}, got {actual}")]
+    HostKeyMismatch {
+        host: String,
+        expected: String,
+        actual: String,
+    },
     #[error("{0}")]
     Other(String),
 }
