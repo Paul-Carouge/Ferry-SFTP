@@ -25,6 +25,13 @@ pub struct ConnectInput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ConnectResult {
+    pub connection_id: String,
+    pub home_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ConnectionStatusPayload<'a> {
     connection_id: &'a str,
     state: &'a str,
@@ -47,7 +54,7 @@ pub async fn sftp_connect(
     app: AppHandle,
     manager: State<'_, SftpManager>,
     input: ConnectInput,
-) -> AppResult<String> {
+) -> AppResult<ConnectResult> {
     let connection_id = uuid::Uuid::new_v4().to_string();
     emit_status(&app, &connection_id, "connecting", None);
 
@@ -75,9 +82,13 @@ pub async fn sftp_connect(
 
     match result {
         Ok(conn) => {
+            let home_dir = conn.home_dir().to_string();
             manager.insert(connection_id.clone(), conn);
             emit_status(&app, &connection_id, "connected", None);
-            Ok(connection_id)
+            Ok(ConnectResult {
+                connection_id,
+                home_dir,
+            })
         }
         Err(e) => {
             emit_status(&app, &connection_id, "error", Some(e.to_string()));

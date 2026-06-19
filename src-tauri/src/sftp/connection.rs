@@ -1,6 +1,6 @@
 use crate::error::{AppError, AppResult};
 use serde::Serialize;
-use ssh2::{Session, Sftp};
+use ssh2::{KeyboardInteractivePrompt, Prompt, Session, Sftp};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -34,6 +34,25 @@ pub struct RemoteEntry {
 pub struct SftpConnection {
     session: Session,
     sftp: Sftp,
+    home_dir: String,
+}
+
+/// Answers every keyboard-interactive prompt with the supplied password.
+/// Several hosts (notably shared SFTP-only accounts, e.g. OVH) advertise
+/// only `keyboard-interactive` rather than `password` for auth — a plain
+/// `userauth_password` call against those servers fails even with correct
+/// credentials, so this fallback is required for them to connect at all.
+struct PasswordPrompter<'a>(&'a str);
+
+impl KeyboardInteractivePrompt for PasswordPrompter<'_> {
+    fn prompt<'b>(
+        &mut self,
+        _username: &str,
+        _instructions: &str,
+        prompts: &[Prompt<'b>],
+    ) -> Vec<String> {
+        prompts.iter().map(|_| self.0.to_string()).collect()
+    }
 }
 
 impl SftpConnection {
@@ -48,7 +67,28 @@ impl SftpConnection {
 
         match auth {
             Auth::Password(password) => {
-                session.userauth_password(username, &password)?;
+                let methods = session.auth_methods(username).unwrap_or("");
+                let try_password = methods.is_empty() || methods.contains("password");
+                let try_kbd_interactive = methods.contains("keyboard-interactive");
+
+                let mut last_err = None;
+                if try_password {
+                    if let Err(e) = session.userauth_password(username, &password) {
+                        last_err = Some(e);
+                    }
+                }
+                if !session.authenticated() && (try_kbd_interactive || !try_password) {
+                    let mut prompter = PasswordPrompter(&password);
+                    if let Err(e) = session.userauth_keyboard_interactive(username, &mut prompter)
+                    {
+                        last_err = Some(e);
+                    }
+                }
+                if !session.authenticated() {
+                    if let Some(e) = last_err {
+                        return Err(AppError::Ssh(e));
+                    }
+                }
             }
             Auth::Key {
                 key_path,
@@ -68,7 +108,21 @@ impl SftpConnection {
         }
 
         let sftp = session.sftp()?;
-        Ok(Self { session, sftp })
+        // The server's reported home directory, not "/" — many SFTP-only
+        // accounts (chrooted or path-restricted, e.g. OVH) deny listing the
+        // filesystem root entirely even though the account itself is valid,
+        // which otherwise surfaces as a misleading "permission denied" on
+        // the very first directory load.
+        let home_dir = sftp
+            .realpath(Path::new("."))
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "/".to_string());
+
+        Ok(Self {
+            session,
+            sftp,
+            home_dir,
+        })
     }
 
     pub fn disconnect(&self) {
@@ -77,6 +131,10 @@ impl SftpConnection {
 
     pub fn sftp(&self) -> &Sftp {
         &self.sftp
+    }
+
+    pub fn home_dir(&self) -> &str {
+        &self.home_dir
     }
 
     pub fn list_dir(&self, path: &str) -> AppResult<Vec<RemoteEntry>> {
