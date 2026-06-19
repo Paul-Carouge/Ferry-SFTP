@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { Modal } from "@/components/common/Modal";
 import { Button } from "@/components/common/Button";
+import { useT } from "@/lib/i18n/useT";
 
 export function PromptDialog({
   open,
   title,
   label,
   initialValue = "",
-  confirmLabel = "Save",
+  confirmLabel,
   onSubmit,
   onCancel,
 }: {
@@ -21,6 +22,7 @@ export function PromptDialog({
   onSubmit: (value: string) => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [value, setValue] = useState(initialValue);
   const [prevOpen, setPrevOpen] = useState(open);
 
@@ -46,10 +48,10 @@ export function PromptDialog({
       </label>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button variant="primary" disabled={!value.trim()} onClick={() => onSubmit(value.trim())}>
-          {confirmLabel}
+          {confirmLabel ?? t("common.save")}
         </Button>
       </div>
     </Modal>

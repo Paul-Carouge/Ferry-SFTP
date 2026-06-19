@@ -9,6 +9,7 @@ import { transfersApi, type RemoteEntry } from "@/lib/api";
 import { joinPath } from "@/lib/path";
 import { useToastStore } from "@/lib/stores/toastStore";
 import type { ConnectionSession } from "@/lib/stores/connectionsStore";
+import { useT } from "@/lib/i18n/useT";
 
 export function DualPane({
   session,
@@ -17,6 +18,7 @@ export function DualPane({
   session: ConnectionSession;
   localHome: string;
 }) {
+  const t = useT();
   const [remoteStore] = useState(() =>
     createPaneStore(session.defaultRemotePath || session.homeDir || "/"),
   );
@@ -46,14 +48,14 @@ export function DualPane({
           const name = localPath.split(/[/\\]/).pop() ?? localPath;
           transfersApi
             .enqueueUpload(session.id, localPath, joinPath(cwd, name))
-            .catch((err) => pushToast(`Couldn't start upload: ${err}`, "error"));
+            .catch((err) => pushToast(t("toast.couldntStartUpload", { error: String(err) }), "error"));
         }
       })
       .then((fn) => {
         unlisten = fn;
       });
     return () => unlisten?.();
-  }, [remoteStore, session.id, pushToast]);
+  }, [remoteStore, session.id, pushToast, t]);
 
   function onDividerDown() {
     dragging.current = true;
@@ -79,7 +81,7 @@ export function DualPane({
           side="local"
           transferConnectionId={session.id}
           initialPath={localHome}
-          title="This computer"
+          title={t("filePane.thisComputer")}
           store={useLocalPaneStore}
           peerStore={remoteStore}
           onPreview={(entry) => setPreview({ side: "local", entry })}
