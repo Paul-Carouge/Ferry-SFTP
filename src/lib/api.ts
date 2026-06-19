@@ -106,8 +106,13 @@ export interface ConnectInput {
   passphrase?: string | null;
 }
 
+export interface ConnectResult {
+  connectionId: string;
+  homeDir: string;
+}
+
 export const sftpApi = {
-  connect: (input: ConnectInput) => invoke<string>("sftp_connect", { input }),
+  connect: (input: ConnectInput) => invoke<ConnectResult>("sftp_connect", { input }),
   disconnect: (connectionId: string) => invoke<void>("sftp_disconnect", { connectionId }),
   listDir: (connectionId: string, path: string) =>
     invoke<RemoteEntry[]>("sftp_list_dir", { connectionId, path }),

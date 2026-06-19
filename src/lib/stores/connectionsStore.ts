@@ -27,6 +27,7 @@ export interface ConnectionSession {
   port: number;
   username: string;
   defaultRemotePath: string | null;
+  homeDir: string | null;
   status: ConnectionStatusState;
   errorMessage: string | null;
 }
@@ -92,6 +93,7 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
       port: profile.port,
       username: profile.username,
       defaultRemotePath: profile.defaultRemotePath,
+      homeDir: null,
       status: "connecting",
       errorMessage: null,
     };
@@ -99,7 +101,7 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
 
     try {
       const secret = await connectionsApi.getSecret(profile.id, profile.authMethod);
-      const connectionId = await sftpApi.connect({
+      const { connectionId, homeDir } = await sftpApi.connect({
         host: profile.host,
         port: profile.port,
         username: profile.username,
@@ -110,7 +112,7 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
       });
       set((state) => ({
         sessions: state.sessions.map((s) =>
-          s.id === tempId ? { ...s, id: connectionId, status: "connected" } : s,
+          s.id === tempId ? { ...s, id: connectionId, homeDir, status: "connected" } : s,
         ),
         activeSessionId: connectionId,
       }));
@@ -136,16 +138,17 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
       port: input.port,
       username: input.username,
       defaultRemotePath: null,
+      homeDir: null,
       status: "connecting",
       errorMessage: null,
     };
     set((state) => ({ sessions: [...state.sessions, session], activeSessionId: tempId }));
 
     try {
-      const connectionId = await sftpApi.connect(input);
+      const { connectionId, homeDir } = await sftpApi.connect(input);
       set((state) => ({
         sessions: state.sessions.map((s) =>
-          s.id === tempId ? { ...s, id: connectionId, status: "connected" } : s,
+          s.id === tempId ? { ...s, id: connectionId, homeDir, status: "connected" } : s,
         ),
         activeSessionId: connectionId,
       }));

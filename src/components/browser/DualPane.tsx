@@ -17,7 +17,9 @@ export function DualPane({
   session: ConnectionSession;
   localHome: string;
 }) {
-  const [remoteStore] = useState(() => createPaneStore(session.defaultRemotePath || "/"));
+  const [remoteStore] = useState(() =>
+    createPaneStore(session.defaultRemotePath || session.homeDir || "/"),
+  );
   const [splitPercent, setSplitPercent] = useState(50);
   const [preview, setPreview] = useState<{ side: "local" | "remote"; entry: RemoteEntry } | null>(
     null,
@@ -92,7 +94,7 @@ export function DualPane({
           side="remote"
           connectionId={session.id}
           transferConnectionId={session.id}
-          initialPath={session.defaultRemotePath || "/"}
+          initialPath={session.defaultRemotePath || session.homeDir || "/"}
           title={session.label}
           store={remoteStore}
           peerStore={useLocalPaneStore}

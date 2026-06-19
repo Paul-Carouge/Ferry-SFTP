@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { scaleIn } from "@/lib/animations";
 
 export function Modal({
@@ -15,6 +16,11 @@ export function Modal({
   width?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (open && panelRef.current) scaleIn(panelRef.current);
@@ -29,9 +35,13 @@ export function Modal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  // Rendered into a portal at the document body: any ancestor (e.g. the
+  // GSAP-animated sidebar) that sets an inline `transform` becomes a new
+  // containing block for `position: fixed` descendants, which would trap
+  // this overlay inside that ancestor's box instead of the full viewport.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       onMouseDown={(e) => {
@@ -44,6 +54,7 @@ export function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
