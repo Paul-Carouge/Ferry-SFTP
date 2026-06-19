@@ -32,17 +32,26 @@ export interface ConnectionSession {
   errorMessage: string | null;
 }
 
+export interface PendingHostKey {
+  profile: ConnectionProfile;
+  fingerprint: string;
+}
+
 interface ConnectionsState {
   profiles: ConnectionProfile[];
   sessions: ConnectionSession[];
   activeSessionId: string | null;
   profilesLoaded: boolean;
   eventsInitialized: boolean;
+  /** Set when a first-time host key needs the user's trust decision. */
+  pendingHostKey: PendingHostKey | null;
   init: () => Promise<void>;
   refreshProfiles: () => Promise<void>;
   saveProfile: (input: Parameters<typeof connectionsApi.save>[0]) => Promise<ConnectionProfile>;
   deleteProfile: (id: string) => Promise<void>;
-  connectWithProfile: (profile: ConnectionProfile) => Promise<string>;
+  connectWithProfile: (profile: ConnectionProfile, trustHostKey?: boolean) => Promise<string | null>;
+  confirmHostKey: () => Promise<void>;
+  cancelHostKey: () => void;
   quickConnect: (input: QuickConnectInput) => Promise<string>;
   disconnectSession: (sessionId: string) => Promise<void>;
   setActiveSession: (id: string | null) => void;
@@ -55,6 +64,7 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
   activeSessionId: null,
   profilesLoaded: false,
   eventsInitialized: false,
+  pendingHostKey: null,
 
   init: async () => {
     if (!get().eventsInitialized) {
@@ -83,7 +93,7 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     set({ profiles });
   },
 
-  connectWithProfile: async (profile) => {
+  connectWithProfile: async (profile, trustHostKey) => {
     const tempId = `pending-${profile.id}`;
     const session: ConnectionSession = {
       id: tempId,
@@ -99,9 +109,12 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     };
     set((state) => ({ sessions: [...state.sessions, session], activeSessionId: tempId }));
 
+    const dropPending = () =>
+      set((state) => ({ sessions: state.sessions.filter((s) => s.id !== tempId) }));
+
     try {
       const secret = await connectionsApi.getSecret(profile.id, profile.authMethod);
-      const { connectionId, homeDir } = await sftpApi.connect({
+      const outcome = await sftpApi.connect({
         host: profile.host,
         port: profile.port,
         username: profile.username,
@@ -109,7 +122,19 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
         password: profile.authMethod === "password" ? secret : undefined,
         keyPath: profile.keyPath,
         passphrase: profile.authMethod === "key" ? secret : undefined,
+        profileId: profile.id,
+        trustHostKey,
       });
+
+      if (outcome.kind === "hostKeyPrompt") {
+        // Not connected yet — drop the pending session and surface the trust
+        // prompt; the dialog re-calls with trustHostKey on accept.
+        dropPending();
+        set({ pendingHostKey: { profile, fingerprint: outcome.fingerprint } });
+        return null;
+      }
+
+      const { connectionId, homeDir } = outcome;
       set((state) => ({
         sessions: state.sessions.map((s) =>
           s.id === tempId ? { ...s, id: connectionId, homeDir, status: "connected" } : s,
@@ -128,6 +153,15 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     }
   },
 
+  confirmHostKey: async () => {
+    const pending = get().pendingHostKey;
+    if (!pending) return;
+    set({ pendingHostKey: null });
+    await get().connectWithProfile(pending.profile, true);
+  },
+
+  cancelHostKey: () => set({ pendingHostKey: null }),
+
   quickConnect: async (input) => {
     const tempId = `pending-quick-${input.host}-${Date.now()}`;
     const session: ConnectionSession = {
@@ -145,7 +179,13 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     set((state) => ({ sessions: [...state.sessions, session], activeSessionId: tempId }));
 
     try {
-      const { connectionId, homeDir } = await sftpApi.connect(input);
+      // Quick connect has no saved profile, so host-key TOFU is skipped and
+      // the backend always returns "connected".
+      const outcome = await sftpApi.connect(input);
+      if (outcome.kind !== "connected") {
+        throw new Error("unexpected host key prompt for ad-hoc connection");
+      }
+      const { connectionId, homeDir } = outcome;
       set((state) => ({
         sessions: state.sessions.map((s) =>
           s.id === tempId ? { ...s, id: connectionId, homeDir, status: "connected" } : s,

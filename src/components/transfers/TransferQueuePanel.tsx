@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useTransfersStore } from "@/lib/stores/transfersStore";
-import { transfersApi, type TransferRecord } from "@/lib/api";
+import { transfersApi, type TransferJob, type TransferRecord } from "@/lib/api";
 import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
 import { baseName } from "@/lib/path";
 import { slideUpFromBottom } from "@/lib/animations";
@@ -20,9 +20,18 @@ import { useT, type TFunction } from "@/lib/i18n/useT";
 
 const ACTIVE_STATES = new Set(["queued", "running", "paused"]);
 
+interface JobGroup {
+  job: TransferJob;
+  records: TransferRecord[];
+  createdAt: number;
+}
+
+type Row = { kind: "record"; record: TransferRecord } | { kind: "job"; group: JobGroup };
+
 export function TransferQueuePanel() {
   const t = useT();
   const records = useTransfersStore((s) => s.records);
+  const jobs = useTransfersStore((s) => s.jobs);
   const clearCompleted = useTransfersStore((s) => s.clearCompleted);
   const [expanded, setExpanded] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -34,6 +43,32 @@ export function TransferQueuePanel() {
   );
   const active = list.filter((r) => ACTIVE_STATES.has(r.state));
   const done = list.filter((r) => !ACTIVE_STATES.has(r.state));
+
+  // Roll folder-job members up into a single row; standalone transfers stay
+  // as individual rows. Ordered by each row's earliest createdAt.
+  const rows = useMemo<Row[]>(() => {
+    const groups = new Map<string, JobGroup>();
+    const out: Row[] = [];
+    for (const record of list) {
+      if (record.jobId && jobs[record.jobId]) {
+        let group = groups.get(record.jobId);
+        if (!group) {
+          group = { job: jobs[record.jobId], records: [], createdAt: record.createdAt };
+          groups.set(record.jobId, group);
+          out.push({ kind: "job", group });
+        }
+        group.records.push(record);
+        group.createdAt = Math.min(group.createdAt, record.createdAt);
+      } else {
+        out.push({ kind: "record", record });
+      }
+    }
+    return out.sort((a, b) => {
+      const at = a.kind === "job" ? a.group.createdAt : a.record.createdAt;
+      const bt = b.kind === "job" ? b.group.createdAt : b.record.createdAt;
+      return at - bt;
+    });
+  }, [list, jobs]);
 
   useEffect(() => {
     if (active.length > prevActiveCount.current) setExpanded(true);
@@ -62,9 +97,13 @@ export function TransferQueuePanel() {
 
       {expanded && (
         <div ref={drawerRef} className="max-h-56 overflow-y-auto border-t border-border">
-          {list.map((record) => (
-            <TransferRow key={record.id} record={record} t={t} />
-          ))}
+          {rows.map((row) =>
+            row.kind === "record" ? (
+              <TransferRow key={row.record.id} record={row.record} t={t} />
+            ) : (
+              <JobRow key={row.group.job.id} group={row.group} t={t} />
+            ),
+          )}
           {done.length > 0 && (
             <div className="flex justify-end px-3 py-1.5">
               <button
@@ -132,6 +171,61 @@ function TransferRow({ record, t }: { record: TransferRecord; t: TFunction }) {
         )}
         {ACTIVE_STATES.has(record.state) && (
           <IconButton title={t("transfers.cancel")} onClick={() => transfersApi.cancel(record.id)}>
+            <X className="size-3.5" />
+          </IconButton>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function JobRow({ group, t }: { group: JobGroup; t: TFunction }) {
+  const { job, records } = group;
+  const totalBytes = job.totalBytes;
+  const transferred = records.reduce((sum, r) => sum + r.bytesTransferred, 0);
+  const percent = totalBytes > 0 ? Math.min(100, (transferred / totalBytes) * 100) : 0;
+  const doneCount = records.filter((r) => r.state === "completed").length;
+  const anyActive = records.some((r) => ACTIVE_STATES.has(r.state));
+  const anyError = records.some((r) => r.state === "error");
+  const speed = records
+    .filter((r) => r.state === "running")
+    .reduce((sum, r) => sum + r.speedBps, 0);
+  const name = baseName(job.direction === "upload" ? job.rootRemotePath : job.rootLocalPath);
+
+  return (
+    <div className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-b-0">
+      {job.direction === "upload" ? (
+        <ArrowUpToLine className="size-3.5 shrink-0 text-accent" />
+      ) : (
+        <ArrowDownToLine className="size-3.5 shrink-0 text-success" />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-xs font-medium text-foreground">{name}/</span>
+          <span className="shrink-0 text-[11px] text-foreground-muted">
+            {t("transfers.jobProgress", { done: doneCount, total: job.totalFiles })}
+          </span>
+        </div>
+        <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-2">
+          <div
+            className={`h-full rounded-full ${anyError ? "bg-danger" : "bg-accent"}`}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+        <div className="mt-0.5 flex items-center justify-between text-[11px] text-foreground-muted">
+          <span>
+            {formatBytes(transferred)} / {formatBytes(totalBytes)}
+            {anyActive && speed > 0 && ` · ${formatSpeed(speed)}`}
+          </span>
+          {!anyActive && (
+            <span>{anyError ? t("transfers.cancelled") : t("transfers.done")}</span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-1">
+        {anyActive && (
+          <IconButton title={t("transfers.cancel")} onClick={() => transfersApi.cancelJob(job.id)}>
             <X className="size-3.5" />
           </IconButton>
         )}

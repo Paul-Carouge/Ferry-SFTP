@@ -11,6 +11,8 @@ use transfers::TransferManager;
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_process::init())
     .manage(SftpManager::default())
     .manage(TransferManager::default())
     .invoke_handler(tauri::generate_handler![
@@ -39,10 +41,15 @@ pub fn run() {
       sftp::commands::sftp_read_preview,
       transfers::commands::transfer_enqueue_upload,
       transfers::commands::transfer_enqueue_download,
+      transfers::commands::transfer_plan_folder,
+      transfers::commands::transfer_check_conflicts,
+      transfers::commands::transfer_enqueue_resolved,
       transfers::commands::transfer_pause,
       transfers::commands::transfer_resume,
       transfers::commands::transfer_cancel,
       transfers::commands::transfer_list,
+      transfers::commands::transfer_job_list,
+      transfers::commands::transfer_cancel_job,
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

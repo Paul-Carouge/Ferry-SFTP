@@ -116,7 +116,9 @@ export function ConnectionDialog({
           secret: secret || null,
         });
         const sessionId = await connectWithProfile(profile);
-        onConnected?.(sessionId);
+        // null => a first-time host-key trust prompt is now showing (handled
+        // globally); close this dialog and let that flow finish the connect.
+        if (sessionId) onConnected?.(sessionId);
       } else {
         const sessionId = await quickConnect({
           host: form.host,
@@ -271,7 +273,15 @@ export function ConnectionDialog({
         </label>
       </div>
 
-      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+      {error &&
+        (error.includes("host key mismatch") ? (
+          <div className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2">
+            <p className="text-sm font-semibold text-danger">{t("hostKey.mismatchTitle")}</p>
+            <p className="mt-1 text-xs text-danger/90">{t("hostKey.mismatchDesc")}</p>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-danger">{error}</p>
+        ))}
 
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>

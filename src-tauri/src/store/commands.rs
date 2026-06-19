@@ -53,7 +53,8 @@ pub fn save_connection(
         color: input.color,
         favorite: input.favorite,
         created_at,
-        last_connected_at: existing.and_then(|p| p.last_connected_at),
+        last_connected_at: existing.as_ref().and_then(|p| p.last_connected_at),
+        host_key_fingerprint: existing.and_then(|p| p.host_key_fingerprint),
     };
 
     if let Some(secret) = input.secret {

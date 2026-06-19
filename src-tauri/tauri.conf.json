@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ferry",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "identifier": "com.ferry.desktop",
   "build": {
     "frontendDist": "../out",
@@ -29,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -38,6 +39,14 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Paul-Carouge/Ferry-SFTP/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzRTI2ODhBMDFEM0Q2RUIKUldUcjF0TUJpbWppODdYL2dHUHhKYWxES1lkbFR0QmtkUDhoZDVXZGN4blNxQU5qUjhpNzJ0enkK"
     }
   }
 }

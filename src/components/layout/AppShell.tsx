@@ -5,10 +5,12 @@ import { FolderTree } from "lucide-react";
 import { useConnectionsStore } from "@/lib/stores/connectionsStore";
 import { useTransfersStore } from "@/lib/stores/transfersStore";
 import { useSettingsStore } from "@/lib/stores/settingsStore";
+import { useUpdateStore } from "@/lib/stores/updateStore";
 import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { SplashScreen } from "@/components/layout/SplashScreen";
 import { ConnectionStatusBar } from "@/components/connection/ConnectionStatusBar";
+import { HostKeyTrustDialog } from "@/components/connection/HostKeyTrustDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { DualPane } from "@/components/browser/DualPane";
 import { TransferQueuePanel } from "@/components/transfers/TransferQueuePanel";
@@ -21,6 +23,7 @@ export function AppShell() {
   const initConnections = useConnectionsStore((s) => s.init);
   const initTransfers = useTransfersStore((s) => s.init);
   const initSettings = useSettingsStore((s) => s.init);
+  const checkForUpdateSilently = useUpdateStore((s) => s.checkSilently);
   const activeSessionId = useConnectionsStore((s) => s.activeSessionId);
   const session = useConnectionsStore((s) =>
     s.sessions.find((sess) => sess.id === activeSessionId),
@@ -32,8 +35,9 @@ export function AppShell() {
     initConnections();
     initTransfers();
     initSettings();
+    checkForUpdateSilently();
     localFsApi.homeDir().then(setLocalHome).catch(() => {});
-  }, [initConnections, initTransfers, initSettings]);
+  }, [initConnections, initTransfers, initSettings, checkForUpdateSilently]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -55,6 +59,7 @@ export function AppShell() {
         </main>
       </div>
       <TransferQueuePanel />
+      <HostKeyTrustDialog />
       <ToastStack />
     </div>
   );

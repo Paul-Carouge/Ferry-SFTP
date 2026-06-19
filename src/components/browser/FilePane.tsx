@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
-import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { FolderPlus, RefreshCw, Search } from "lucide-react";
 import { Breadcrumbs } from "@/components/browser/Breadcrumbs";
 import { FileRow } from "@/components/browser/FileRow";
 import { ContextMenu, type ContextMenuItem } from "@/components/common/ContextMenu";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { PromptDialog } from "@/components/common/PromptDialog";
-import { localFsApi, sftpApi, transfersApi, type RemoteEntry } from "@/lib/api";
+import { localFsApi, sftpApi, type RemoteEntry, type TransferDirection } from "@/lib/api";
 import { joinPath, parentPath } from "@/lib/path";
 import { useToastStore } from "@/lib/stores/toastStore";
 import { useStaggerOnChange } from "@/lib/animations";
@@ -22,6 +22,7 @@ export interface DragPayload {
   path: string;
   name: string;
   isDir: boolean;
+  size: number;
 }
 
 const DND_MIME = "application/x-ferry-entry";
@@ -51,6 +52,7 @@ export function FilePane({
   store,
   peerStore,
   onPreview,
+  onTransfer,
 }: {
   side: "local" | "remote";
   connectionId?: string;
@@ -62,6 +64,14 @@ export function FilePane({
   /** The other pane's store, used to know where to save/send files initiated from a context menu (no drag target to read a destination from). */
   peerStore: UseBoundStore<StoreApi<PaneStoreState>>;
   onPreview: (entry: RemoteEntry) => void;
+  /** Plans/resolves conflicts/enqueues a transfer; owned by the parent DualPane so both panes and OS drag-drop share one conflict-resolution flow. */
+  onTransfer: (
+    direction: TransferDirection,
+    sourcePath: string,
+    destPath: string,
+    isDir: boolean,
+    size: number,
+  ) => Promise<void>;
 }) {
   const {
     cwd,
@@ -82,8 +92,9 @@ export function FilePane({
   const t = useT();
   const pushToast = useToastStore((s) => s.push);
   const listRef = useRef<HTMLDivElement>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; entry?: RemoteEntry } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; entry?: RemoteEntry; batch?: RemoteEntry[] } | null>(null);
   const [deleting, setDeleting] = useState<RemoteEntry | null>(null);
+  const [deletingBatch, setDeletingBatch] = useState<RemoteEntry[] | null>(null);
   const [renaming, setRenaming] = useState<RemoteEntry | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -185,25 +196,65 @@ export function FilePane({
     }
   }
 
-  async function sendToOtherSide(entry: RemoteEntry) {
-    if (entry.isDir) {
-      pushToast(t("toast.folderTransferUnsupported"), "info");
+  async function deleteBatch(items: RemoteEntry[]) {
+    setDeletingBatch(null);
+    const results = await Promise.allSettled(
+      items.map((e) =>
+        side === "local"
+          ? localFsApi.remove(e.path, e.isDir)
+          : sftpApi.remove(connectionId!, e.path, e.isDir),
+      ),
+    );
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed > 0) {
+      pushToast(t("toast.batchDeletePartialFail", { failed, total: items.length }), "error");
+    }
+    clearSelection();
+    load(cwd);
+  }
+
+  async function sendBatchToOtherSide(items: RemoteEntry[]) {
+    const destDir = peerStore.getState().cwd;
+    if (side === "local") {
+      for (const entry of items) {
+        await onTransfer("upload", entry.path, joinPath(destDir, entry.name), entry.isDir, entry.size);
+      }
       return;
     }
+    // remote -> local: pick one destination directory for the whole batch
+    const destParent = await openDialog({ directory: true, title: t("filePane.chooseDestinationTitle") });
+    if (!destParent) return;
+    for (const entry of items) {
+      await onTransfer("download", entry.path, joinPath(destParent as string, entry.name), entry.isDir, entry.size);
+    }
+  }
+
+  async function sendToOtherSide(entry: RemoteEntry) {
     const destDir = peerStore.getState().cwd;
     try {
       if (side === "local") {
         // this pane is local, so sending to the other side means uploading to remote
         const remoteTarget = joinPath(destDir, entry.name);
-        await transfersApi.enqueueUpload(transferConnectionId!, entry.path, remoteTarget);
+        await onTransfer("upload", entry.path, remoteTarget, entry.isDir, entry.size);
       } else {
         // this pane is remote, so sending to the other side means downloading to local
-        const destination = await saveFileDialog({
-          defaultPath: joinPath(destDir, entry.name),
-          title: t("filePane.saveAsTitle", { name: entry.name }),
-        });
-        if (!destination) return;
-        await transfersApi.enqueueDownload(transferConnectionId!, entry.path, destination);
+        let localTarget: string;
+        if (entry.isDir) {
+          const destParent = await openDialog({
+            directory: true,
+            title: t("filePane.chooseDestinationTitle"),
+          });
+          if (!destParent) return;
+          localTarget = joinPath(destParent as string, entry.name);
+        } else {
+          const destination = await saveFileDialog({
+            defaultPath: joinPath(destDir, entry.name),
+            title: t("filePane.saveAsTitle", { name: entry.name }),
+          });
+          if (!destination) return;
+          localTarget = destination;
+        }
+        await onTransfer("download", entry.path, localTarget, entry.isDir, entry.size);
       }
     } catch (err) {
       pushToast(t("toast.couldntStartTransfer", { error: String(err) }), "error");
@@ -215,10 +266,10 @@ export function FilePane({
       if (side === "local" && payload.side === "remote") {
         // dropping a remote file onto the local pane -> download
         const localTarget = joinPath(cwd, payload.name);
-        await transfersApi.enqueueDownload(payload.connectionId!, payload.path, localTarget);
+        await onTransfer("download", payload.path, localTarget, payload.isDir, payload.size);
       } else if (side === "remote" && payload.side === "local") {
         const remoteTarget = joinPath(cwd, payload.name);
-        await transfersApi.enqueueUpload(connectionId!, payload.path, remoteTarget);
+        await onTransfer("upload", payload.path, remoteTarget, payload.isDir, payload.size);
       }
     } catch (err) {
       pushToast(t("toast.couldntStartTransfer", { error: String(err) }), "error");
@@ -226,7 +277,14 @@ export function FilePane({
   }
 
   function handleDragStart(e: DragEvent, entry: RemoteEntry) {
-    const payload: DragPayload = { side, connectionId, path: entry.path, name: entry.name, isDir: entry.isDir };
+    const payload: DragPayload = {
+      side,
+      connectionId,
+      path: entry.path,
+      name: entry.name,
+      isDir: entry.isDir,
+      size: entry.size,
+    };
     e.dataTransfer.setData(DND_MIME, JSON.stringify(payload));
     e.dataTransfer.effectAllowed = "copy";
   }
@@ -238,10 +296,6 @@ export function FilePane({
     if (!raw) return;
     const payload: DragPayload = JSON.parse(raw);
     if (payload.side === side) return;
-    if (payload.isDir) {
-      pushToast(t("toast.folderTransferUnsupported"), "info");
-      return;
-    }
     void transferEntry(payload);
   }
 
@@ -257,12 +311,43 @@ export function FilePane({
       {
         label: side === "local" ? t("filePane.uploadToRemote") : t("filePane.downloadToLocal"),
         onClick: () => sendToOtherSide(entry),
-        disabled: entry.isDir,
         separatorBefore: true,
       },
       { label: t("filePane.rename"), onClick: () => setRenaming(entry) },
       { label: t("filePane.delete"), onClick: () => setDeleting(entry), danger: true },
     ];
+  }
+
+  function batchMenuItems(items: RemoteEntry[]): ContextMenuItem[] {
+    return [
+      {
+        label: t("filePane.sendSelectedToOtherSide", { count: items.length }),
+        onClick: () => void sendBatchToOtherSide(items),
+      },
+      {
+        label: t("filePane.deleteSelected", { count: items.length }),
+        onClick: () => setDeletingBatch(items),
+        danger: true,
+        separatorBefore: true,
+      },
+    ];
+  }
+
+  /** Resolves the currently selected paths to entries among the visible rows. */
+  function selectedEntries(): RemoteEntry[] {
+    return filtered.filter((e) => selected.has(e.path));
+  }
+
+  function openRowMenu(e: MouseEvent, entry: RemoteEntry) {
+    e.preventDefault();
+    e.stopPropagation();
+    // If the right-clicked row is part of a multi-selection, act on the whole
+    // selection; otherwise act on just this row (Finder/Explorer convention).
+    if (selected.size > 1 && selected.has(entry.path)) {
+      setMenu({ x: e.clientX, y: e.clientY, batch: selectedEntries() });
+    } else {
+      setMenu({ x: e.clientX, y: e.clientY, entry });
+    }
   }
 
   function paneMenuItems(): ContextMenuItem[] {
@@ -352,11 +437,7 @@ export function FilePane({
                 subPath={subPath}
                 onClick={(e) => toggleSelected(entry.path, !(e.metaKey || e.ctrlKey))}
                 onDoubleClick={() => navigate(entry)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setMenu({ x: e.clientX, y: e.clientY, entry });
-                }}
+                onContextMenu={(e) => openRowMenu(e, entry)}
                 onDragStart={(e) => handleDragStart(e, entry)}
               />
             );
@@ -368,7 +449,13 @@ export function FilePane({
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={menu.entry ? rowMenuItems(menu.entry) : paneMenuItems()}
+          items={
+            menu.batch
+              ? batchMenuItems(menu.batch)
+              : menu.entry
+                ? rowMenuItems(menu.entry)
+                : paneMenuItems()
+          }
           onClose={() => setMenu(null)}
         />
       )}
@@ -381,6 +468,16 @@ export function FilePane({
         danger
         onCancel={() => setDeleting(null)}
         onConfirm={() => deleting && deleteEntry(deleting)}
+      />
+
+      <ConfirmDialog
+        open={deletingBatch !== null}
+        title={t("filePane.deleteSelectedTitle", { count: deletingBatch?.length ?? 0 })}
+        description={t("filePane.deleteFolderDesc")}
+        confirmLabel={t("filePane.delete")}
+        danger
+        onCancel={() => setDeletingBatch(null)}
+        onConfirm={() => deletingBatch && deleteBatch(deletingBatch)}
       />
 
       <PromptDialog

@@ -1,8 +1,9 @@
 pub mod commands;
+pub mod walk;
 
 use crate::error::{AppError, AppResult};
 use crate::sftp::connection::SftpConnection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -16,7 +17,7 @@ use crate::sftp::manager::SftpManager;
 const CHUNK_SIZE: usize = 256 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(150);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TransferDirection {
     Upload,
@@ -48,6 +49,20 @@ pub struct TransferRecord {
     pub error: Option<String>,
     pub speed_bps: u64,
     pub created_at: i64,
+    pub job_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferJob {
+    pub id: String,
+    pub connection_id: String,
+    pub direction: TransferDirection,
+    pub root_local_path: String,
+    pub root_remote_path: String,
+    pub total_files: usize,
+    pub total_bytes: u64,
+    pub created_at: i64,
 }
 
 enum TransferOutcome {
@@ -60,12 +75,17 @@ struct TransferControl {
     cancelled: AtomicBool,
 }
 
+fn is_active(state: TransferState) -> bool {
+    matches!(state, TransferState::Queued | TransferState::Running | TransferState::Paused)
+}
+
 #[derive(Default)]
 pub struct TransferManager {
     records: Mutex<HashMap<String, TransferRecord>>,
     controls: Mutex<HashMap<String, Arc<TransferControl>>>,
     queues: Mutex<HashMap<String, VecDeque<String>>>,
     active_workers: Mutex<HashSet<String>>,
+    jobs: Mutex<HashMap<String, TransferJob>>,
 }
 
 impl TransferManager {
@@ -73,6 +93,40 @@ impl TransferManager {
         let mut records: Vec<TransferRecord> = self.records.lock().unwrap().values().cloned().collect();
         records.sort_by_key(|r| r.created_at);
         records
+    }
+
+    pub fn list_jobs(&self) -> Vec<TransferJob> {
+        let mut jobs: Vec<TransferJob> = self.jobs.lock().unwrap().values().cloned().collect();
+        jobs.sort_by_key(|j| j.created_at);
+        jobs
+    }
+
+    fn insert_job(&self, job: TransferJob) {
+        self.jobs.lock().unwrap().insert(job.id.clone(), job);
+    }
+
+    fn active_records_for_job(&self, job_id: &str) -> Vec<String> {
+        self.records
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|r| r.job_id.as_deref() == Some(job_id) && is_active(r.state))
+            .map(|r| r.id.clone())
+            .collect()
+    }
+
+    fn job_exists(&self, job_id: &str) -> bool {
+        self.jobs.lock().unwrap().contains_key(job_id)
+    }
+
+    pub fn cancel_job(&self, job_id: &str) -> AppResult<()> {
+        if !self.job_exists(job_id) {
+            return Err(AppError::NotFound(format!("transfer job {job_id}")));
+        }
+        for id in self.active_records_for_job(job_id) {
+            let _ = self.cancel(&id);
+        }
+        Ok(())
     }
 
     fn insert_record(&self, record: TransferRecord) {
@@ -198,10 +252,12 @@ pub fn spawn_enqueue(
     remote_path: String,
     total_bytes: u64,
     created_at: i64,
+    job_id: Option<String>,
 ) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     let record = TransferRecord {
         id: id.clone(),
+        job_id,
         connection_id: connection_id.clone(),
         direction,
         local_path,
@@ -227,6 +283,50 @@ pub fn spawn_enqueue(
     }
 
     id
+}
+
+/// Enqueues a batch of files as a single grouped `TransferJob`, reusing
+/// `spawn_enqueue` per file so the existing copy/progress/cancel machinery
+/// is untouched. `root_local_path`/`root_remote_path` are the folder roots
+/// the job was planned from (for display only).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_enqueue_job(
+    app: AppHandle,
+    connection_id: String,
+    direction: TransferDirection,
+    root_local_path: String,
+    root_remote_path: String,
+    files: Vec<(String, String, u64)>,
+    created_at: i64,
+) -> String {
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let total_bytes = files.iter().map(|(_, _, size)| *size).sum();
+    let job = TransferJob {
+        id: job_id.clone(),
+        connection_id: connection_id.clone(),
+        direction,
+        root_local_path,
+        root_remote_path,
+        total_files: files.len(),
+        total_bytes,
+        created_at,
+    };
+    app.state::<TransferManager>().insert_job(job);
+
+    for (local_path, remote_path, size) in files {
+        spawn_enqueue(
+            app.clone(),
+            connection_id.clone(),
+            direction,
+            local_path,
+            remote_path,
+            size,
+            created_at,
+            Some(job_id.clone()),
+        );
+    }
+
+    job_id
 }
 
 async fn run_worker(app: AppHandle, connection_id: String) {
