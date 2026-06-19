@@ -32,7 +32,10 @@ pub struct ConnectInput {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+// `rename_all` on an enum renames the VARIANT tags (Connected -> "connected");
+// `rename_all_fields` is required to also camelCase the struct-variant fields
+// (connection_id -> "connectionId"), which the frontend reads.
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ConnectOutcome {
     Connected {
         connection_id: String,
@@ -295,4 +298,32 @@ pub async fn sftp_read_preview(
     tauri::async_runtime::spawn_blocking(move || conn.read_preview(&path, PREVIEW_MAX_BYTES))
         .await
         .map_err(|e| AppError::Other(e.to_string()))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConnectOutcome;
+
+    // Guards the camelCase wire contract the frontend depends on. An enum's
+    // `rename_all` only renames variant tags, so without `rename_all_fields`
+    // the struct fields stay snake_case and `connectionId` reads as undefined
+    // in JS — which silently breaks every connectionId-keyed command.
+    #[test]
+    fn connect_outcome_serializes_camel_case() {
+        let connected = ConnectOutcome::Connected {
+            connection_id: "abc".into(),
+            home_dir: "/home".into(),
+        };
+        let json = serde_json::to_value(&connected).unwrap();
+        assert_eq!(json["kind"], "connected");
+        assert_eq!(json["connectionId"], "abc");
+        assert_eq!(json["homeDir"], "/home");
+
+        let prompt = ConnectOutcome::HostKeyPrompt {
+            fingerprint: "ff".into(),
+        };
+        let json = serde_json::to_value(&prompt).unwrap();
+        assert_eq!(json["kind"], "hostKeyPrompt");
+        assert_eq!(json["fingerprint"], "ff");
+    }
 }
