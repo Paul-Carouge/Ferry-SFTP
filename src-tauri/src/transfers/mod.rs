@@ -332,7 +332,12 @@ fn open_dst(
 ) -> AppResult<Box<dyn Write + Send>> {
     match direction {
         TransferDirection::Upload => Ok(Box::new(conn.sftp().create(Path::new(remote_path))?)),
-        TransferDirection::Download => Ok(Box::new(std::fs::File::create(local_path)?)),
+        TransferDirection::Download => {
+            if let Some(parent) = Path::new(local_path).parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            Ok(Box::new(std::fs::File::create(local_path)?))
+        }
     }
 }
 

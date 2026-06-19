@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { onTransferUpdate, transfersApi, type TransferRecord } from "@/lib/api";
+import { useToastStore } from "@/lib/stores/toastStore";
+import { baseName } from "@/lib/path";
 
 interface TransfersState {
   records: Record<string, TransferRecord>;
@@ -28,7 +30,19 @@ export const useTransfersStore = create<TransfersState>((set, get) => ({
   },
 
   upsert: (record) =>
-    set((state) => ({ records: { ...state.records, [record.id]: record } })),
+    set((state) => {
+      const prev = state.records[record.id];
+      if (prev?.state !== record.state) {
+        const name = baseName(record.direction === "upload" ? record.remotePath : record.localPath);
+        const verb = record.direction === "upload" ? "Upload" : "Download";
+        if (record.state === "completed") {
+          useToastStore.getState().push(`${verb} complete: ${name}`, "success");
+        } else if (record.state === "error") {
+          useToastStore.getState().push(`${verb} failed: ${name}${record.error ? ` — ${record.error}` : ""}`, "error");
+        }
+      }
+      return { records: { ...state.records, [record.id]: record } };
+    }),
 
   clearCompleted: () =>
     set((state) => ({

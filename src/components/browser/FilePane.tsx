@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
+import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { FolderPlus, RefreshCw, Search } from "lucide-react";
 import { Breadcrumbs } from "@/components/browser/Breadcrumbs";
 import { FileRow } from "@/components/browser/FileRow";
@@ -43,16 +44,22 @@ interface PaneStoreState {
 export function FilePane({
   side,
   connectionId,
+  transferConnectionId,
   initialPath,
   title,
   store,
+  peerStore,
   onPreview,
 }: {
   side: "local" | "remote";
   connectionId?: string;
+  /** Connection id to use for transfers, always defined regardless of which side this pane is. */
+  transferConnectionId?: string;
   initialPath: string;
   title: string;
   store: UseBoundStore<StoreApi<PaneStoreState>>;
+  /** The other pane's store, used to know where to save/send files initiated from a context menu (no drag target to read a destination from). */
+  peerStore: UseBoundStore<StoreApi<PaneStoreState>>;
   onPreview: (entry: RemoteEntry) => void;
 }) {
   const {
@@ -176,12 +183,29 @@ export function FilePane({
     }
   }
 
-  function sendToOtherSide(entry: RemoteEntry) {
+  async function sendToOtherSide(entry: RemoteEntry) {
     if (entry.isDir) {
       pushToast("Folder transfers aren't supported yet — only files.", "info");
       return;
     }
-    void transferEntry({ side, connectionId, path: entry.path, name: entry.name, isDir: entry.isDir });
+    const destDir = peerStore.getState().cwd;
+    try {
+      if (side === "local") {
+        // this pane is local, so sending to the other side means uploading to remote
+        const remoteTarget = joinPath(destDir, entry.name);
+        await transfersApi.enqueueUpload(transferConnectionId!, entry.path, remoteTarget);
+      } else {
+        // this pane is remote, so sending to the other side means downloading to local
+        const destination = await saveFileDialog({
+          defaultPath: joinPath(destDir, entry.name),
+          title: `Save ${entry.name} as…`,
+        });
+        if (!destination) return;
+        await transfersApi.enqueueDownload(transferConnectionId!, entry.path, destination);
+      }
+    } catch (err) {
+      pushToast(`Couldn't start transfer: ${err}`, "error");
+    }
   }
 
   async function transferEntry(payload: DragPayload) {
@@ -190,14 +214,12 @@ export function FilePane({
         // dropping a remote file onto the local pane -> download
         const localTarget = joinPath(cwd, payload.name);
         await transfersApi.enqueueDownload(payload.connectionId!, payload.path, localTarget);
-        pushToast(`Downloading ${payload.name}`, "success");
       } else if (side === "remote" && payload.side === "local") {
         const remoteTarget = joinPath(cwd, payload.name);
         await transfersApi.enqueueUpload(connectionId!, payload.path, remoteTarget);
-        pushToast(`Uploading ${payload.name}`, "success");
       }
     } catch (err) {
-      pushToast(`Transfer failed: ${err}`, "error");
+      pushToast(`Couldn't start transfer: ${err}`, "error");
     }
   }
 
