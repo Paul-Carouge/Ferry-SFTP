@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
+import { useT } from "@/lib/i18n/useT";
 
 export function ThemeToggle() {
+  const t = useT();
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
@@ -24,7 +26,7 @@ export function ThemeToggle() {
     <button
       onClick={toggle}
       className="rounded-md p-1.5 text-foreground-muted hover:bg-surface-2 hover:text-foreground"
-      title="Toggle theme"
+      title={t("topBar.toggleTheme")}
     >
       {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
     </button>

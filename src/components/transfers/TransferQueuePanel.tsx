@@ -16,10 +16,12 @@ import { transfersApi, type TransferRecord } from "@/lib/api";
 import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
 import { baseName } from "@/lib/path";
 import { slideUpFromBottom } from "@/lib/animations";
+import { useT, type TFunction } from "@/lib/i18n/useT";
 
 const ACTIVE_STATES = new Set(["queued", "running", "paused"]);
 
 export function TransferQueuePanel() {
+  const t = useT();
   const records = useTransfersStore((s) => s.records);
   const clearCompleted = useTransfersStore((s) => s.clearCompleted);
   const [expanded, setExpanded] = useState(false);
@@ -51,7 +53,9 @@ export function TransferQueuePanel() {
         className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground-muted hover:text-foreground"
       >
         <span>
-          {active.length > 0 ? `${active.length} transfer${active.length > 1 ? "s" : ""} in progress` : `${list.length} transfer${list.length > 1 ? "s" : ""}`}
+          {active.length > 0
+            ? t("transfers.inProgress", { count: active.length, s: active.length > 1 ? "s" : "" })
+            : t("transfers.total", { count: list.length, s: list.length > 1 ? "s" : "" })}
         </span>
         {expanded ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
       </button>
@@ -59,7 +63,7 @@ export function TransferQueuePanel() {
       {expanded && (
         <div ref={drawerRef} className="max-h-56 overflow-y-auto border-t border-border">
           {list.map((record) => (
-            <TransferRow key={record.id} record={record} />
+            <TransferRow key={record.id} record={record} t={t} />
           ))}
           {done.length > 0 && (
             <div className="flex justify-end px-3 py-1.5">
@@ -67,7 +71,7 @@ export function TransferQueuePanel() {
                 onClick={clearCompleted}
                 className="flex items-center gap-1 text-xs text-foreground-muted hover:text-foreground"
               >
-                <Trash2 className="size-3" /> Clear finished
+                <Trash2 className="size-3" /> {t("transfers.clearFinished")}
               </button>
             </div>
           )}
@@ -77,7 +81,7 @@ export function TransferQueuePanel() {
   );
 }
 
-function TransferRow({ record }: { record: TransferRecord }) {
+function TransferRow({ record, t }: { record: TransferRecord; t: TFunction }) {
   const name = baseName(record.direction === "upload" ? record.remotePath : record.localPath);
   const percent = record.totalBytes > 0 ? Math.min(100, (record.bytesTransferred / record.totalBytes) * 100) : 0;
   const remaining = Math.max(0, record.totalBytes - record.bytesTransferred);
@@ -106,10 +110,10 @@ function TransferRow({ record }: { record: TransferRecord }) {
           <span>
             {record.state === "running" && formatSpeed(record.speedBps)}
             {record.state === "error" && <span className="text-danger">{record.error}</span>}
-            {record.state === "paused" && "Paused"}
-            {record.state === "queued" && "Queued"}
-            {record.state === "completed" && "Done"}
-            {record.state === "cancelled" && "Cancelled"}
+            {record.state === "paused" && t("transfers.paused")}
+            {record.state === "queued" && t("transfers.queued")}
+            {record.state === "completed" && t("transfers.done")}
+            {record.state === "cancelled" && t("transfers.cancelled")}
           </span>
           {record.state === "running" && <span>{formatEta(remaining, record.speedBps)}</span>}
         </div>
@@ -117,17 +121,17 @@ function TransferRow({ record }: { record: TransferRecord }) {
 
       <div className="flex shrink-0 items-center gap-1">
         {record.state === "running" && (
-          <IconButton title="Pause" onClick={() => transfersApi.pause(record.id)}>
+          <IconButton title={t("transfers.pause")} onClick={() => transfersApi.pause(record.id)}>
             <Pause className="size-3.5" />
           </IconButton>
         )}
         {record.state === "paused" && (
-          <IconButton title="Resume" onClick={() => transfersApi.resume(record.id)}>
+          <IconButton title={t("transfers.resume")} onClick={() => transfersApi.resume(record.id)}>
             <Play className="size-3.5" />
           </IconButton>
         )}
         {ACTIVE_STATES.has(record.state) && (
-          <IconButton title="Cancel" onClick={() => transfersApi.cancel(record.id)}>
+          <IconButton title={t("transfers.cancel")} onClick={() => transfersApi.cancel(record.id)}>
             <X className="size-3.5" />
           </IconButton>
         )}

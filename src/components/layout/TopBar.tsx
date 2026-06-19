@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, Minus, Plus, Square, X } from "lucide-react";
+import { Copy, Minus, Plus, Settings, Square, X } from "lucide-react";
 import { useConnectionsStore } from "@/lib/stores/connectionsStore";
 import { ConnectionDialog } from "@/components/connection/ConnectionDialog";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { SettingsDialog } from "@/components/settings/SettingsDialog";
+import { useT } from "@/lib/i18n/useT";
 
 const STATUS_DOT: Record<string, string> = {
   connecting: "bg-warning animate-pulse",
@@ -15,11 +17,13 @@ const STATUS_DOT: Record<string, string> = {
 };
 
 export function TopBar() {
+  const t = useT();
   const sessions = useConnectionsStore((s) => s.sessions);
   const activeSessionId = useConnectionsStore((s) => s.activeSessionId);
   const setActiveSession = useConnectionsStore((s) => s.setActiveSession);
   const disconnectSession = useConnectionsStore((s) => s.disconnectSession);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -72,38 +76,46 @@ export function TopBar() {
         <button
           onClick={() => setDialogOpen(true)}
           className="rounded-md p-1.5 text-foreground-muted hover:bg-surface-2 hover:text-foreground"
-          title="New connection"
+          title={t("topBar.newConnection")}
         >
           <Plus className="size-4" />
         </button>
       </div>
       <ThemeToggle />
+      <button
+        onClick={() => setSettingsOpen(true)}
+        className="rounded-md p-1.5 text-foreground-muted hover:bg-surface-2 hover:text-foreground"
+        title={t("topBar.settings")}
+      >
+        <Settings className="size-4" />
+      </button>
 
       <div className="ml-1 flex h-full items-center">
         <button
           onClick={() => getCurrentWindow().minimize()}
           className="flex h-full w-10 items-center justify-center text-foreground-muted transition-colors hover:bg-surface-2 hover:text-foreground"
-          title="Minimize"
+          title={t("topBar.minimize")}
         >
           <Minus className="size-4" />
         </button>
         <button
           onClick={() => getCurrentWindow().toggleMaximize()}
           className="flex h-full w-10 items-center justify-center text-foreground-muted transition-colors hover:bg-surface-2 hover:text-foreground"
-          title={isMaximized ? "Restore" : "Maximize"}
+          title={isMaximized ? t("topBar.restore") : t("topBar.maximize")}
         >
           {isMaximized ? <Copy className="size-3.5" /> : <Square className="size-3.5" />}
         </button>
         <button
           onClick={() => getCurrentWindow().close()}
           className="flex h-full w-10 items-center justify-center text-foreground-muted transition-colors hover:bg-danger hover:text-white"
-          title="Close"
+          title={t("topBar.close")}
         >
           <X className="size-4" />
         </button>
       </div>
 
       <ConnectionDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

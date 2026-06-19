@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Star } from "lucide-react";
 import { ContextMenu, type ContextMenuItem } from "@/components/common/ContextMenu";
 import type { ConnectionProfile } from "@/lib/api";
+import { useT } from "@/lib/i18n/useT";
 
 export function ConnectionListItem({
   profile,
@@ -20,13 +21,14 @@ export function ConnectionListItem({
   onDelete: () => void;
   onToggleFavorite: () => void;
 }) {
+  const t = useT();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   const items: ContextMenuItem[] = [
-    { label: "Connect", onClick: onConnect },
-    { label: profile.favorite ? "Unfavorite" : "Favorite", onClick: onToggleFavorite },
-    { label: "Edit", onClick: onEdit, separatorBefore: true },
-    { label: "Delete", onClick: onDelete, danger: true },
+    { label: t("connItem.connect"), onClick: onConnect },
+    { label: t(profile.favorite ? "connItem.unfavorite" : "connItem.favorite"), onClick: onToggleFavorite },
+    { label: t("connItem.edit"), onClick: onEdit, separatorBefore: true },
+    { label: t("connItem.delete"), onClick: onDelete, danger: true },
   ];
 
   return (

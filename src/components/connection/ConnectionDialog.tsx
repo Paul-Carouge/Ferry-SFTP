@@ -5,6 +5,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { Modal } from "@/components/common/Modal";
 import { Button } from "@/components/common/Button";
 import { useConnectionsStore } from "@/lib/stores/connectionsStore";
+import { useT } from "@/lib/i18n/useT";
 import type { AuthMethod, ConnectionProfile } from "@/lib/api";
 
 const COLORS = ["#6366f1", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4", "#a855f7", "#6b7280"];
@@ -50,6 +51,7 @@ export function ConnectionDialog({
   editingProfile?: ConnectionProfile | null;
   onConnected?: (sessionId: string) => void;
 }) {
+  const t = useT();
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +90,7 @@ export function ConnectionDialog({
   }
 
   async function browseForKey() {
-    const path = await openFileDialog({ multiple: false, title: "Select private key" });
+    const path = await openFileDialog({ multiple: false, title: t("connDialog.selectKeyDialogTitle") });
     if (typeof path === "string") update("keyPath", path);
   }
 
@@ -138,29 +140,29 @@ export function ConnectionDialog({
   return (
     <Modal open={open} onClose={onClose} width="max-w-lg">
       <h2 className="text-sm font-semibold text-foreground">
-        {editingProfile ? "Edit connection" : "New connection"}
+        {editingProfile ? t("connDialog.editConnection") : t("connDialog.newConnection")}
       </h2>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <Field label="Name" className="col-span-2">
+        <Field label={t("connDialog.name")} className="col-span-2">
           <input
             className={inputClass}
-            placeholder="My server"
+            placeholder={t("connDialog.namePlaceholder")}
             value={form.name}
             onChange={(e) => update("name", e.target.value)}
           />
         </Field>
 
-        <Field label="Host" className="col-span-2">
+        <Field label={t("connDialog.host")} className="col-span-2">
           <input
             className={inputClass}
-            placeholder="sftp.example.com"
+            placeholder={t("connDialog.hostPlaceholder")}
             value={form.host}
             onChange={(e) => update("host", e.target.value)}
           />
         </Field>
 
-        <Field label="Port">
+        <Field label={t("connDialog.port")}>
           <input
             className={inputClass}
             value={form.port}
@@ -168,7 +170,7 @@ export function ConnectionDialog({
           />
         </Field>
 
-        <Field label="Username">
+        <Field label={t("connDialog.username")}>
           <input
             className={inputClass}
             value={form.username}
@@ -181,19 +183,19 @@ export function ConnectionDialog({
             <button
               key={method}
               onClick={() => update("authMethod", method)}
-              className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+              className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                 form.authMethod === method
                   ? "bg-surface-1 text-foreground shadow-sm"
                   : "text-foreground-muted hover:text-foreground"
               }`}
             >
-              {method === "password" ? "Password" : "SSH Key"}
+              {method === "password" ? t("connDialog.password") : t("connDialog.sshKey")}
             </button>
           ))}
         </div>
 
         {form.authMethod === "password" ? (
-          <Field label="Password" className="col-span-2">
+          <Field label={t("connDialog.password")} className="col-span-2">
             <input
               type="password"
               className={inputClass}
@@ -203,20 +205,20 @@ export function ConnectionDialog({
           </Field>
         ) : (
           <>
-            <Field label="Private key" className="col-span-2">
+            <Field label={t("connDialog.privateKey")} className="col-span-2">
               <div className="flex gap-2">
                 <input
                   className={inputClass}
-                  placeholder="~/.ssh/id_ed25519"
+                  placeholder={t("connDialog.keyPathPlaceholder")}
                   value={form.keyPath}
                   onChange={(e) => update("keyPath", e.target.value)}
                 />
                 <Button variant="secondary" onClick={browseForKey} type="button">
-                  Browse
+                  {t("connDialog.browse")}
                 </Button>
               </div>
             </Field>
-            <Field label="Passphrase (optional)" className="col-span-2">
+            <Field label={t("connDialog.passphrase")} className="col-span-2">
               <input
                 type="password"
                 className={inputClass}
@@ -227,7 +229,7 @@ export function ConnectionDialog({
           </>
         )}
 
-        <Field label="Default remote path (optional)" className="col-span-2">
+        <Field label={t("connDialog.defaultRemotePath")} className="col-span-2">
           <input
             className={inputClass}
             placeholder="/"
@@ -255,7 +257,7 @@ export function ConnectionDialog({
               checked={form.favorite}
               onChange={(e) => update("favorite", e.target.checked)}
             />
-            Favorite
+            {t("connDialog.favorite")}
           </label>
         </div>
 
@@ -265,7 +267,7 @@ export function ConnectionDialog({
             checked={form.save}
             onChange={(e) => update("save", e.target.checked)}
           />
-          Save this connection
+          {t("connDialog.saveConnection")}
         </label>
       </div>
 
@@ -273,14 +275,14 @@ export function ConnectionDialog({
 
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button
           variant="primary"
           disabled={connecting || !form.host || !form.username}
           onClick={handleConnect}
         >
-          {connecting ? "Connecting…" : "Connect"}
+          {connecting ? t("connDialog.connecting") : t("connDialog.connect")}
         </Button>
       </div>
     </Modal>

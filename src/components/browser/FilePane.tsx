@@ -13,6 +13,7 @@ import { localFsApi, sftpApi, transfersApi, type RemoteEntry } from "@/lib/api";
 import { joinPath, parentPath } from "@/lib/path";
 import { useToastStore } from "@/lib/stores/toastStore";
 import { useStaggerOnChange } from "@/lib/animations";
+import { useT } from "@/lib/i18n/useT";
 import type { PaneEntry } from "@/lib/stores/paneStore";
 
 export interface DragPayload {
@@ -78,6 +79,7 @@ export function FilePane({
     setFilter,
   } = store();
 
+  const t = useT();
   const pushToast = useToastStore((s) => s.push);
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; entry?: RemoteEntry } | null>(null);
@@ -108,7 +110,7 @@ export function FilePane({
             : await sftpApi.search(connectionId!, cwd, query);
         setSearchResults(results);
       } catch (err) {
-        pushToast(`Search failed: ${err}`, "error");
+        pushToast(t("toast.searchFailed", { error: String(err) }), "error");
         setSearchResults(null);
       } finally {
         setSearching(false);
@@ -128,7 +130,7 @@ export function FilePane({
       clearSelection();
     } catch (err) {
       setError(String(err));
-      pushToast(`Couldn't open ${path}`, "error");
+      pushToast(t("toast.couldntOpen", { path }), "error");
     } finally {
       setLoading(false);
     }
@@ -156,7 +158,7 @@ export function FilePane({
       else await sftpApi.mkdir(connectionId!, path);
       load(cwd);
     } catch (err) {
-      pushToast(`Couldn't create folder: ${err}`, "error");
+      pushToast(t("toast.couldntCreateFolder", { error: String(err) }), "error");
     }
   }
 
@@ -168,7 +170,7 @@ export function FilePane({
       else await sftpApi.rename(connectionId!, entry.path, newPath);
       load(cwd);
     } catch (err) {
-      pushToast(`Couldn't rename: ${err}`, "error");
+      pushToast(t("toast.couldntRename", { error: String(err) }), "error");
     }
   }
 
@@ -179,13 +181,13 @@ export function FilePane({
       else await sftpApi.remove(connectionId!, entry.path, entry.isDir);
       load(cwd);
     } catch (err) {
-      pushToast(`Couldn't delete: ${err}`, "error");
+      pushToast(t("toast.couldntDelete", { error: String(err) }), "error");
     }
   }
 
   async function sendToOtherSide(entry: RemoteEntry) {
     if (entry.isDir) {
-      pushToast("Folder transfers aren't supported yet — only files.", "info");
+      pushToast(t("toast.folderTransferUnsupported"), "info");
       return;
     }
     const destDir = peerStore.getState().cwd;
@@ -198,13 +200,13 @@ export function FilePane({
         // this pane is remote, so sending to the other side means downloading to local
         const destination = await saveFileDialog({
           defaultPath: joinPath(destDir, entry.name),
-          title: `Save ${entry.name} as…`,
+          title: t("filePane.saveAsTitle", { name: entry.name }),
         });
         if (!destination) return;
         await transfersApi.enqueueDownload(transferConnectionId!, entry.path, destination);
       }
     } catch (err) {
-      pushToast(`Couldn't start transfer: ${err}`, "error");
+      pushToast(t("toast.couldntStartTransfer", { error: String(err) }), "error");
     }
   }
 
@@ -219,7 +221,7 @@ export function FilePane({
         await transfersApi.enqueueUpload(connectionId!, payload.path, remoteTarget);
       }
     } catch (err) {
-      pushToast(`Couldn't start transfer: ${err}`, "error");
+      pushToast(t("toast.couldntStartTransfer", { error: String(err) }), "error");
     }
   }
 
@@ -237,7 +239,7 @@ export function FilePane({
     const payload: DragPayload = JSON.parse(raw);
     if (payload.side === side) return;
     if (payload.isDir) {
-      pushToast("Folder transfers aren't supported yet — only files.", "info");
+      pushToast(t("toast.folderTransferUnsupported"), "info");
       return;
     }
     void transferEntry(payload);
@@ -251,22 +253,22 @@ export function FilePane({
 
   function rowMenuItems(entry: RemoteEntry): ContextMenuItem[] {
     return [
-      { label: entry.isDir ? "Open" : "Preview", onClick: () => navigate(entry) },
+      { label: entry.isDir ? t("filePane.open") : t("filePane.preview"), onClick: () => navigate(entry) },
       {
-        label: side === "local" ? "Upload to remote" : "Download to local",
+        label: side === "local" ? t("filePane.uploadToRemote") : t("filePane.downloadToLocal"),
         onClick: () => sendToOtherSide(entry),
         disabled: entry.isDir,
         separatorBefore: true,
       },
-      { label: "Rename", onClick: () => setRenaming(entry) },
-      { label: "Delete", onClick: () => setDeleting(entry), danger: true },
+      { label: t("filePane.rename"), onClick: () => setRenaming(entry) },
+      { label: t("filePane.delete"), onClick: () => setDeleting(entry), danger: true },
     ];
   }
 
   function paneMenuItems(): ContextMenuItem[] {
     return [
-      { label: "New folder", onClick: () => setCreatingFolder(true) },
-      { label: "Refresh", onClick: () => load(cwd) },
+      { label: t("filePane.newFolder"), onClick: () => setCreatingFolder(true) },
+      { label: t("filePane.refresh"), onClick: () => load(cwd) },
     ];
   }
 
@@ -290,14 +292,14 @@ export function FilePane({
           <button
             onClick={() => setCreatingFolder(true)}
             className="rounded-md p-1 text-foreground-muted hover:bg-surface-2 hover:text-foreground"
-            title="New folder"
+            title={t("filePane.newFolder")}
           >
             <FolderPlus className="size-3.5" />
           </button>
           <button
             onClick={() => load(cwd)}
             className="rounded-md p-1 text-foreground-muted hover:bg-surface-2 hover:text-foreground"
-            title="Refresh"
+            title={t("filePane.refresh")}
           >
             <RefreshCw className="size-3.5" />
           </button>
@@ -313,10 +315,10 @@ export function FilePane({
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Search files and subfolders…"
+          placeholder={t("filePane.searchPlaceholder")}
           className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-foreground-muted"
         />
-        {searching && <span className="shrink-0 text-xs text-foreground-muted">Searching…</span>}
+        {searching && <span className="shrink-0 text-xs text-foreground-muted">{t("filePane.searching")}</span>}
       </div>
 
       <div
@@ -328,11 +330,11 @@ export function FilePane({
         }}
       >
         {loading && entries.length === 0 ? (
-          <p className="p-3 text-sm text-foreground-muted">Loading…</p>
+          <p className="p-3 text-sm text-foreground-muted">{t("filePane.loading")}</p>
         ) : error ? (
           <p className="p-3 text-sm text-danger">{error}</p>
         ) : filtered.length === 0 ? (
-          <p className="p-3 text-sm text-foreground-muted">Empty folder</p>
+          <p className="p-3 text-sm text-foreground-muted">{t("filePane.emptyFolder")}</p>
         ) : (
           filtered.map((entry) => {
             const dir = parentPath(entry.path);
@@ -373,9 +375,9 @@ export function FilePane({
 
       <ConfirmDialog
         open={deleting !== null}
-        title={`Delete "${deleting?.name}"?`}
-        description={deleting?.isDir ? "This deletes the folder and everything inside it." : undefined}
-        confirmLabel="Delete"
+        title={t("filePane.deleteTitle", { name: deleting?.name ?? "" })}
+        description={deleting?.isDir ? t("filePane.deleteFolderDesc") : undefined}
+        confirmLabel={t("filePane.delete")}
         danger
         onCancel={() => setDeleting(null)}
         onConfirm={() => deleting && deleteEntry(deleting)}
@@ -383,19 +385,19 @@ export function FilePane({
 
       <PromptDialog
         open={renaming !== null}
-        title="Rename"
-        label="New name"
+        title={t("filePane.renameTitle")}
+        label={t("filePane.renameLabel")}
         initialValue={renaming?.name ?? ""}
-        confirmLabel="Rename"
+        confirmLabel={t("filePane.rename")}
         onCancel={() => setRenaming(null)}
         onSubmit={(value) => renaming && renameEntry(renaming, value)}
       />
 
       <PromptDialog
         open={creatingFolder}
-        title="New folder"
-        label="Folder name"
-        confirmLabel="Create"
+        title={t("filePane.newFolderTitle")}
+        label={t("filePane.folderNameLabel")}
+        confirmLabel={t("filePane.create")}
         onCancel={() => setCreatingFolder(false)}
         onSubmit={createFolder}
       />

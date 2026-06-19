@@ -1,15 +1,18 @@
 "use client";
 
 import { useConnectionsStore } from "@/lib/stores/connectionsStore";
+import { useT } from "@/lib/i18n/useT";
+import type { TranslationKey } from "@/lib/i18n/translations";
 
-const STATUS_LABEL: Record<string, string> = {
-  connecting: "Connecting…",
-  connected: "Connected",
-  error: "Connection failed",
-  disconnected: "Disconnected",
+const STATUS_KEY: Record<string, TranslationKey> = {
+  connecting: "statusBar.connecting",
+  connected: "statusBar.connected",
+  error: "statusBar.error",
+  disconnected: "statusBar.disconnected",
 };
 
 export function ConnectionStatusBar() {
+  const t = useT();
   const sessions = useConnectionsStore((s) => s.sessions);
   const activeSessionId = useConnectionsStore((s) => s.activeSessionId);
   const session = sessions.find((s) => s.id === activeSessionId);
@@ -23,7 +26,7 @@ export function ConnectionStatusBar() {
       </span>
       <span className="text-border">•</span>
       <span className={session.status === "error" ? "text-danger" : ""}>
-        {STATUS_LABEL[session.status]}
+        {t(STATUS_KEY[session.status])}
         {session.errorMessage ? `: ${session.errorMessage}` : ""}
       </span>
     </div>

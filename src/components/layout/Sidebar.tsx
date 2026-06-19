@@ -9,8 +9,10 @@ import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { slideInFromLeft } from "@/lib/animations";
 import type { ConnectionProfile } from "@/lib/api";
+import { useT } from "@/lib/i18n/useT";
 
 export function Sidebar() {
+  const t = useT();
   const profiles = useConnectionsStore((s) => s.profiles);
   const sessions = useConnectionsStore((s) => s.sessions);
   const activeSessionId = useConnectionsStore((s) => s.activeSessionId);
@@ -58,7 +60,7 @@ export function Sidebar() {
     >
       <div className="mb-2 flex items-center justify-between px-1">
         <span className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">
-          Connections
+          {t("sidebar.connections")}
         </span>
         <button
           onClick={() => {
@@ -66,7 +68,7 @@ export function Sidebar() {
             setDialogOpen(true);
           }}
           className="rounded-md p-1 text-foreground-muted hover:bg-surface-2 hover:text-foreground"
-          title="New connection"
+          title={t("sidebar.newConnection")}
         >
           <Plus className="size-4" />
         </button>
@@ -75,13 +77,13 @@ export function Sidebar() {
       {profiles.length === 0 ? (
         <EmptyState
           icon={<Server className="size-6" />}
-          title="No connections yet"
-          description="Add your first SFTP server to get started."
+          title={t("sidebar.noConnections")}
+          description={t("sidebar.noConnectionsDesc")}
         />
       ) : (
         <div className="flex flex-col gap-3 overflow-y-auto">
           {favorites.length > 0 && (
-            <Section title="Favorites">
+            <Section title={t("sidebar.favorites")}>
               {favorites.map((p) => (
                 <ConnectionListItem
                   key={p.id}
@@ -100,7 +102,7 @@ export function Sidebar() {
           )}
 
           {recent.length > 0 && (
-            <Section title="Recent">
+            <Section title={t("sidebar.recent")}>
               {recent.map((p) => (
                 <ConnectionListItem
                   key={p.id}
@@ -118,7 +120,7 @@ export function Sidebar() {
             </Section>
           )}
 
-          <Section title="All connections">
+          <Section title={t("sidebar.allConnections")}>
             {profiles
               .slice()
               .sort((a, b) => a.name.localeCompare(b.name))
@@ -148,9 +150,9 @@ export function Sidebar() {
 
       <ConfirmDialog
         open={deletingProfile !== null}
-        title={`Delete "${deletingProfile?.name}"?`}
-        description="This removes the saved connection and any stored credentials."
-        confirmLabel="Delete"
+        title={t("sidebar.deleteTitle", { name: deletingProfile?.name ?? "" })}
+        description={t("sidebar.deleteDesc")}
+        confirmLabel={t("connItem.delete")}
         danger
         onCancel={() => setDeletingProfile(null)}
         onConfirm={() => {
