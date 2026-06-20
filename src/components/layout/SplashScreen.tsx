@@ -6,7 +6,7 @@ import { gsap } from "gsap";
 
 export function SplashScreen({ onDone }: { onDone: () => void }) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const logoRef = useRef<SVGSVGElement>(null);
+  const logoRef = useRef<HTMLImageElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [mounted, setMounted] = useState(false);
 
@@ -43,10 +43,8 @@ export function SplashScreen({ onDone }: { onDone: () => void }) {
       ref={overlayRef}
       className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-background"
     >
-      <svg ref={logoRef} viewBox="0 0 24 24" className="size-12 text-accent" fill="currentColor">
-        <path d="M3 15.5 12 18l9-2.5-1.5 3.3Q12 20 3 18.8Z" />
-        <path d="M9 11h6v3H9zM11.2 5h1.6v5.2h-1.6z" />
-      </svg>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img ref={logoRef} src="/icon.png" alt="Ferry" className="size-20 rounded-[22%]" />
       <span ref={textRef} className="text-lg font-semibold tracking-wide text-foreground">
         Ferry
       </span>

@@ -25,7 +25,9 @@ export interface DragPayload {
   size: number;
 }
 
-const DND_MIME = "application/x-ferry-entry";
+// Module-level: DataTransfer custom MIME types don't work in WKWebView (Tauri/macOS).
+// Store the drag payload directly so both panes can access it during drop.
+let activeDragPayloads: DragPayload[] | null = null;
 
 interface PaneStoreState {
   cwd: string;
@@ -304,8 +306,11 @@ export function FilePane({
     e.preventDefault();
     setDropTarget(null);
     setDragOver(false);
-    for (const payload of parseDragPayloads(e)) {
-      if (payload.side === side) return;
+    const payloads = activeDragPayloads;
+    activeDragPayloads = null;
+    if (!payloads) return;
+    for (const payload of payloads) {
+      if (payload.side === side) continue;
       void transferEntry(payload, entry.path);
     }
   }
@@ -315,7 +320,7 @@ export function FilePane({
       selected.size > 1 && selected.has(entry.path)
         ? filtered.filter((en) => selected.has(en.path))
         : [entry];
-    const payloads: DragPayload[] = dragEntries.map((en) => ({
+    activeDragPayloads = dragEntries.map((en) => ({
       side,
       connectionId,
       path: en.path,
@@ -323,22 +328,17 @@ export function FilePane({
       isDir: en.isDir,
       size: en.size,
     }));
-    e.dataTransfer.setData(DND_MIME, JSON.stringify(payloads));
     e.dataTransfer.effectAllowed = "copy";
-  }
-
-  function parseDragPayloads(e: DragEvent): DragPayload[] {
-    const raw = e.dataTransfer.getData(DND_MIME);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as DragPayload[]) : [parsed as DragPayload];
   }
 
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    for (const payload of parseDragPayloads(e)) {
-      if (payload.side === side) return;
+    const payloads = activeDragPayloads;
+    activeDragPayloads = null;
+    if (!payloads) return;
+    for (const payload of payloads) {
+      if (payload.side === side) continue;
       void transferEntry(payload, cwd);
     }
   }

@@ -45,10 +45,8 @@ export function TopBar() {
       onDoubleClick={() => getCurrentWindow().toggleMaximize()}
     >
       <span className="flex items-center gap-1.5 px-2 text-sm font-semibold text-foreground">
-        <svg viewBox="0 0 24 24" className="size-3.5 text-accent" fill="currentColor">
-          <path d="M3 15.5 12 18l9-2.5-1.5 3.3Q12 20 3 18.8Z" />
-          <path d="M9 11h6v3H9zM11.2 5h1.6v5.2h-1.6z" />
-        </svg>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icon.png" alt="" className="size-5 rounded-[22%]" />
         Ferry
       </span>
       <div data-tauri-drag-region className="flex flex-1 items-center gap-1 overflow-x-auto px-1">
