@@ -12,22 +12,18 @@ import { PromptDialog } from "@/components/common/PromptDialog";
 import { localFsApi, sftpApi, type RemoteEntry, type TransferDirection } from "@/lib/api";
 import { joinPath, parentPath } from "@/lib/path";
 import { useToastStore } from "@/lib/stores/toastStore";
+import { useSettingsStore } from "@/lib/stores/settingsStore";
 import { useStaggerOnChange } from "@/lib/animations";
 import { useT } from "@/lib/i18n/useT";
 import type { PaneEntry } from "@/lib/stores/paneStore";
+import {
+  type DragPayload,
+  getDragPayloads,
+  setDragPayloads,
+  setLastDragPos,
+} from "@/lib/dragState";
 
-export interface DragPayload {
-  side: "local" | "remote";
-  connectionId?: string;
-  path: string;
-  name: string;
-  isDir: boolean;
-  size: number;
-}
-
-// Module-level: DataTransfer custom MIME types don't work in WKWebView (Tauri/macOS).
-// Store the drag payload directly so both panes can access it during drop.
-let activeDragPayloads: DragPayload[] | null = null;
+export type { DragPayload };
 
 interface PaneStoreState {
   cwd: string;
@@ -93,6 +89,7 @@ export function FilePane({
 
   const t = useT();
   const pushToast = useToastStore((s) => s.push);
+  const showHiddenFiles = useSettingsStore((s) => s.showHiddenFiles);
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; entry?: RemoteEntry; batch?: RemoteEntry[] } | null>(null);
   const [deleting, setDeleting] = useState<RemoteEntry | null>(null);
@@ -306,8 +303,8 @@ export function FilePane({
     e.preventDefault();
     setDropTarget(null);
     setDragOver(false);
-    const payloads = activeDragPayloads;
-    activeDragPayloads = null;
+    const payloads = getDragPayloads();
+    setDragPayloads(null);
     if (!payloads) return;
     for (const payload of payloads) {
       if (payload.side === side) continue;
@@ -320,22 +317,24 @@ export function FilePane({
       selected.size > 1 && selected.has(entry.path)
         ? filtered.filter((en) => selected.has(en.path))
         : [entry];
-    activeDragPayloads = dragEntries.map((en) => ({
-      side,
-      connectionId,
-      path: en.path,
-      name: en.name,
-      isDir: en.isDir,
-      size: en.size,
-    }));
+    setDragPayloads(
+      dragEntries.map((en) => ({
+        side,
+        connectionId,
+        path: en.path,
+        name: en.name,
+        isDir: en.isDir,
+        size: en.size,
+      })),
+    );
     e.dataTransfer.effectAllowed = "copy";
   }
 
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    const payloads = activeDragPayloads;
-    activeDragPayloads = null;
+    const payloads = getDragPayloads();
+    setDragPayloads(null);
     if (!payloads) return;
     for (const payload of payloads) {
       if (payload.side === side) continue;
@@ -343,10 +342,11 @@ export function FilePane({
     }
   }
 
+  const visibleEntries = showHiddenFiles ? entries : entries.filter((e) => !e.name.startsWith("."));
   const quickFiltered = filter
-    ? entries.filter((e) => e.name.toLowerCase().includes(filter.toLowerCase()))
-    : entries;
-  const filtered = filter ? (searchResults ?? quickFiltered) : entries;
+    ? visibleEntries.filter((e) => e.name.toLowerCase().includes(filter.toLowerCase()))
+    : visibleEntries;
+  const filtered = filter ? (searchResults ?? quickFiltered) : visibleEntries;
   const isSearching = filter.trim().length > 0 && searchResults !== null;
 
   const sorted = [...filtered].sort((a, b) => {
@@ -357,6 +357,39 @@ export function FilePane({
     else cmp = (a.modified ?? 0) - (b.modified ?? 0);
     return sortDir === "asc" ? cmp : -cmp;
   });
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    const target = e.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+
+    const sel = sorted.filter((en) => selected.has(en.path));
+
+    if (e.key === "F2" && sel.length === 1) {
+      e.preventDefault();
+      setRenaming(sel[0]);
+    } else if ((e.key === "Delete" || (e.key === "Backspace" && sel.length > 0))) {
+      e.preventDefault();
+      if (sel.length === 1) setDeleting(sel[0]);
+      else if (sel.length > 1) setDeletingBatch(sel);
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      sorted.forEach((en) => {
+        if (!selected.has(en.path)) toggleSelected(en.path, false);
+      });
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      clearSelection();
+    } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") {
+      e.preventDefault();
+      setCreatingFolder(true);
+    } else if (e.key === "Enter" && sel.length === 1) {
+      e.preventDefault();
+      navigate(sel[0]);
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
+      e.preventDefault();
+      load(cwd);
+    }
+  }
 
   function rowMenuItems(entry: RemoteEntry): ContextMenuItem[] {
     return [
@@ -412,12 +445,20 @@ export function FilePane({
 
   return (
     <div
-      className={`flex min-w-0 flex-1 flex-col overflow-hidden border-border ${
+      className={`flex min-w-0 flex-1 flex-col overflow-hidden border-border outline-none ${
         side === "local" ? "border-r" : ""
       } ${dragOver ? "bg-accent/5" : ""}`}
-      onDragOver={(e) => {
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      onDragEnter={(e) => {
         e.preventDefault();
         setDragOver(true);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setDragOver(true);
+        setLastDragPos(e.clientX, e.clientY);
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
@@ -453,6 +494,7 @@ export function FilePane({
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Escape") { setFilter(""); (e.target as HTMLInputElement).blur(); } }}
           placeholder={t("filePane.searchPlaceholder")}
           className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-foreground-muted"
         />

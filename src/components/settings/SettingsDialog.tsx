@@ -15,6 +15,10 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const t = useT();
   const locale = useSettingsStore((s) => s.locale);
   const setLocale = useSettingsStore((s) => s.setLocale);
+  const showHiddenFiles = useSettingsStore((s) => s.showHiddenFiles);
+  const setShowHiddenFiles = useSettingsStore((s) => s.setShowHiddenFiles);
+  const showTransferToasts = useSettingsStore((s) => s.showTransferToasts);
+  const setShowTransferToasts = useSettingsStore((s) => s.setShowTransferToasts);
 
   return (
     <Modal open={open} onClose={onClose} width="max-w-sm">
@@ -39,8 +43,67 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         </div>
       </div>
 
+      <div className="mt-5 border-t border-border pt-4">
+        <span className="text-xs font-medium text-foreground-muted">{t("settings.fileBrowser")}</span>
+        <div className="mt-2 space-y-2">
+          <ToggleRow
+            label={t("settings.showHiddenFiles")}
+            description={t("settings.showHiddenFilesDesc")}
+            value={showHiddenFiles}
+            onChange={setShowHiddenFiles}
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 border-t border-border pt-4">
+        <span className="text-xs font-medium text-foreground-muted">{t("settings.transfers")}</span>
+        <div className="mt-2 space-y-2">
+          <ToggleRow
+            label={t("settings.transferToasts")}
+            description={t("settings.transferToastsDesc")}
+            value={showTransferToasts}
+            onChange={setShowTransferToasts}
+          />
+        </div>
+      </div>
+
       <UpdateSection />
     </Modal>
+  );
+}
+
+function ToggleRow({
+  label,
+  description,
+  value,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm text-foreground">{label}</p>
+        {description && <p className="text-xs text-foreground-muted">{description}</p>}
+      </div>
+      <button
+        role="switch"
+        aria-checked={value}
+        onClick={() => onChange(!value)}
+        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+          value ? "bg-accent" : "bg-surface-2"
+        }`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+            value ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
+      </button>
+    </div>
   );
 }
 

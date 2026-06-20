@@ -18,6 +18,7 @@ import { resolveAndEnqueue, type ConflictChoice } from "@/lib/transferResolve";
 import { useToastStore } from "@/lib/stores/toastStore";
 import type { ConnectionSession } from "@/lib/stores/connectionsStore";
 import { useT } from "@/lib/i18n/useT";
+import { getDragPayloads, setDragPayloads, getLastDragPos } from "@/lib/dragState";
 
 export function DualPane({
   session,
@@ -35,7 +36,9 @@ export function DualPane({
     null,
   );
   const containerRef = useRef<HTMLDivElement>(null);
+  const localPaneRef = useRef<HTMLDivElement>(null);
   const remotePaneRef = useRef<HTMLDivElement>(null);
+  const sendTransferRef = useRef(sendTransfer);
   const dragging = useRef(false);
   const pushToast = useToastStore((s) => s.push);
   const [conflictPrompt, setConflictPrompt] = useState<{
@@ -73,6 +76,59 @@ export function DualPane({
       pushToast(t("toast.couldntStartTransfer", { error: String(err) }), "error");
     }
   }
+
+  // Keep ref current so the dragend fallback handler always calls the latest sendTransfer.
+  sendTransferRef.current = sendTransfer;
+
+  // WKWebView fallback: if the HTML5 `drop` event doesn't fire (known WKWebView issue),
+  // the `dragend` event on the source element is our safety net. We check the last
+  // known cursor position (tracked in dragState during dragover) against pane bounds.
+  useEffect(() => {
+    function handleDragEnd() {
+      const payloads = getDragPayloads();
+      if (!payloads) return;
+      setDragPayloads(null);
+
+      const { x, y } = getLastDragPos();
+      const localRect = localPaneRef.current?.getBoundingClientRect();
+      const remoteRect = remotePaneRef.current?.getBoundingClientRect();
+
+      const inLocal =
+        localRect && x >= localRect.left && x <= localRect.right && y >= localRect.top && y <= localRect.bottom;
+      const inRemote =
+        remoteRect && x >= remoteRect.left && x <= remoteRect.right && y >= remoteRect.top && y <= remoteRect.bottom;
+
+      if (inLocal) {
+        const localCwd = useLocalPaneStore.getState().cwd;
+        for (const payload of payloads) {
+          if (payload.side !== "remote") continue;
+          void sendTransferRef.current(
+            "download",
+            payload.path,
+            joinPath(localCwd, payload.name),
+            payload.isDir,
+            payload.size,
+          );
+        }
+      } else if (inRemote) {
+        const remoteCwd = remoteStore.getState().cwd;
+        for (const payload of payloads) {
+          if (payload.side !== "local") continue;
+          void sendTransferRef.current(
+            "upload",
+            payload.path,
+            joinPath(remoteCwd, payload.name),
+            payload.isDir,
+            payload.size,
+          );
+        }
+      }
+    }
+
+    window.addEventListener("dragend", handleDragEnd);
+    return () => window.removeEventListener("dragend", handleDragEnd);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteStore]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -121,7 +177,7 @@ export function DualPane({
 
   return (
     <div ref={containerRef} className="relative flex flex-1 overflow-hidden">
-      <div style={{ width: `${splitPercent}%` }} className="flex min-w-0">
+      <div ref={localPaneRef} style={{ width: `${splitPercent}%` }} className="flex min-w-0">
         <FilePane
           side="local"
           transferConnectionId={session.id}

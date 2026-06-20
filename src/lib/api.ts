@@ -111,6 +111,8 @@ export const localFsApi = {
     const bytes = await invoke<number[]>("local_read_preview", { path });
     return new Uint8Array(bytes);
   },
+  writeFile: (path: string, content: number[]) =>
+    invoke<void>("local_write_file", { path, content }),
 };
 
 // --- SFTP session + filesystem ---
@@ -154,6 +156,8 @@ export const sftpApi = {
     const bytes = await invoke<number[]>("sftp_read_preview", { connectionId, path });
     return new Uint8Array(bytes);
   },
+  writeFile: (connectionId: string, path: string, content: number[]) =>
+    invoke<void>("sftp_write_file", { connectionId, path, content }),
 };
 
 // --- Transfer queue ---

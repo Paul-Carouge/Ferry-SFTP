@@ -300,6 +300,19 @@ pub async fn sftp_read_preview(
         .map_err(|e| AppError::Other(e.to_string()))?
 }
 
+#[tauri::command]
+pub async fn sftp_write_file(
+    manager: State<'_, SftpManager>,
+    connection_id: String,
+    path: String,
+    content: Vec<u8>,
+) -> AppResult<()> {
+    let conn = manager.get(&connection_id)?;
+    tauri::async_runtime::spawn_blocking(move || conn.write_file(&path, &content))
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::ConnectOutcome;

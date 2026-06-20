@@ -293,4 +293,11 @@ impl SftpConnection {
         }
         Ok(buf)
     }
+
+    pub fn write_file(&self, path: &str, content: &[u8]) -> AppResult<()> {
+        use std::io::Write;
+        let mut file = self.sftp().create(std::path::Path::new(path))?;
+        file.write_all(content)?;
+        Ok(())
+    }
 }

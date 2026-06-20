@@ -120,10 +120,47 @@ export function TransferQueuePanel() {
   );
 }
 
+function SpeedSparkline({ history }: { history: number[] }) {
+  if (history.length < 2) return null;
+  const max = Math.max(...history, 1);
+  const w = 48;
+  const h = 14;
+  const barW = 1.5;
+  const gap = 0.5;
+  const step = barW + gap;
+  return (
+    <svg width={w} height={h} className="shrink-0 text-accent" aria-hidden>
+      {history.map((speed, i) => {
+        const barH = Math.max(1, (speed / max) * h);
+        const x = w - (history.length - i) * step;
+        return (
+          <rect
+            key={i}
+            x={x}
+            y={h - barH}
+            width={barW}
+            height={barH}
+            fill="currentColor"
+            opacity={0.3 + 0.7 * (i / (history.length - 1))}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 function TransferRow({ record, t }: { record: TransferRecord; t: TFunction }) {
   const name = baseName(record.direction === "upload" ? record.remotePath : record.localPath);
   const percent = record.totalBytes > 0 ? Math.min(100, (record.bytesTransferred / record.totalBytes) * 100) : 0;
   const remaining = Math.max(0, record.totalBytes - record.bytesTransferred);
+  const speedHistory = useRef<number[]>([]);
+
+  if (record.state === "running" && record.speedBps > 0) {
+    const h = speedHistory.current;
+    if (h.length === 0 || h[h.length - 1] !== record.speedBps) {
+      speedHistory.current = [...h, record.speedBps].slice(-24);
+    }
+  }
 
   return (
     <div className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-b-0">
@@ -146,8 +183,13 @@ function TransferRow({ record, t }: { record: TransferRecord; t: TFunction }) {
           />
         </div>
         <div className="mt-0.5 flex items-center justify-between text-[11px] text-foreground-muted">
-          <span>
-            {record.state === "running" && formatSpeed(record.speedBps)}
+          <span className="flex items-center gap-2">
+            {record.state === "running" && (
+              <>
+                <SpeedSparkline history={speedHistory.current} />
+                {formatSpeed(record.speedBps)}
+              </>
+            )}
             {record.state === "error" && <span className="text-danger">{record.error}</span>}
             {record.state === "paused" && t("transfers.paused")}
             {record.state === "queued" && t("transfers.queued")}

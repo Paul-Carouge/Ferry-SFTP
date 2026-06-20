@@ -15,17 +15,26 @@ no Electron, no bundled browser runtime.
 ## Features
 
 - **Dual-pane browser** — local and remote file systems side by side, with
-  breadcrumb navigation, search (including inside subfolders), and a
-  right-click context menu for the usual file operations.
+  breadcrumb navigation, search (including inside subfolders), column sorting,
+  and a right-click context menu for the usual file operations.
 - **Drag and drop** — drag files between panes to upload/download, or drop
   files in from the OS file manager directly onto the remote pane.
+- **Keyboard shortcuts** — F2 rename, Delete/Backspace delete, Cmd+A select all,
+  Escape clear selection, Cmd+Shift+N new folder, Enter navigate into folder,
+  Cmd+R refresh.
 - **Transfer queue** — uploads and downloads run through a per-connection
-  queue with live progress, pause/resume, and cancel.
+  queue with live progress, pause/resume, cancel, and a per-transfer bandwidth
+  sparkline.
 - **Connection profiles** — save servers with name, color, and favorite
   status. Passwords and key passphrases are stored in the OS keychain
   (Keychain / Credential Manager / Secret Service), never in plain text.
+- **Integrated text editor** — preview and edit remote or local text files
+  with syntax highlighting (JS/TS, Python, Rust, CSS, HTML, JSON, Markdown,
+  XML, and more). Edits save back over SFTP in one click.
 - **File preview** — quick look at text and image files without leaving
   the app.
+- **Settings** — show/hide dotfiles, toggle transfer completion notifications,
+  switch language and theme.
 - **Light and dark themes**, matching your OS by default.
 
 ## Tech stack
@@ -37,6 +46,7 @@ no Electron, no bundled browser runtime.
 | Styling  | Tailwind CSS v4 |
 | State    | Zustand |
 | Animation| GSAP |
+| Editor   | CodeMirror 6 |
 
 ## Getting started
 
@@ -83,7 +93,7 @@ cd src-tauri && cargo check    # Rust compile check
 
 ```
 src/                  Next.js frontend
-  components/         browser, connection, transfers, preview UI
+  components/         browser, connection, transfers, preview, editor UI
   lib/                Tauri command wrappers, Zustand stores, helpers
 src-tauri/src/        Rust backend
   sftp/               SFTP session + commands (ssh2/libssh2)

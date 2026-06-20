@@ -56,3 +56,9 @@ pub async fn local_read_preview(path: String) -> AppResult<Vec<u8>> {
         .await
         .map_err(|e| AppError::Other(e.to_string()))?
 }
+
+#[tauri::command]
+pub fn local_write_file(path: String, content: Vec<u8>) -> AppResult<()> {
+    std::fs::write(&path, &content)?;
+    Ok(())
+}

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { onTransferUpdate, transfersApi, type TransferJob, type TransferRecord } from "@/lib/api";
 import { useToastStore } from "@/lib/stores/toastStore";
+import { useSettingsStore } from "@/lib/stores/settingsStore";
 import { baseName } from "@/lib/path";
 
 interface TransfersState {
@@ -40,7 +41,7 @@ export const useTransfersStore = create<TransfersState>((set, get) => ({
       if (prev?.state !== record.state && !record.jobId) {
         const name = baseName(record.direction === "upload" ? record.remotePath : record.localPath);
         const verb = record.direction === "upload" ? "Upload" : "Download";
-        if (record.state === "completed") {
+        if (record.state === "completed" && useSettingsStore.getState().showTransferToasts) {
           useToastStore.getState().push(`${verb} complete: ${name}`, "success");
         } else if (record.state === "error") {
           useToastStore.getState().push(`${verb} failed: ${name}${record.error ? ` — ${record.error}` : ""}`, "error");
