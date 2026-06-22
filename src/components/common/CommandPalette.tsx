@@ -17,9 +17,12 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
 } from "lucide-react";
+import { Bookmark as BookmarkIcon } from "lucide-react";
 import { useUiStore } from "@/lib/stores/uiStore";
 import { useConnectionsStore } from "@/lib/stores/connectionsStore";
 import { useSettingsStore } from "@/lib/stores/settingsStore";
+import { useBookmarksStore } from "@/lib/stores/bookmarksStore";
+import { useLocalPaneStore } from "@/lib/stores/paneStore";
 import { useUpdateStore } from "@/lib/stores/updateStore";
 import { useT } from "@/lib/i18n/useT";
 import type { ReactNode } from "react";
@@ -53,6 +56,7 @@ export function CommandPalette() {
   const showTransferToasts = useSettingsStore((s) => s.showTransferToasts);
   const setShowTransferToasts = useSettingsStore((s) => s.setShowTransferToasts);
   const checkForUpdates = useUpdateStore((s) => s.checkNow);
+  const bookmarks = useBookmarksStore((s) => s.bookmarks);
 
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -81,6 +85,19 @@ export function CommandPalette() {
         keywords: `${sess.label} ${sess.host} switch session tab`,
         icon: <Plug className="size-4 shrink-0 text-foreground-muted" />,
         run: () => setActiveSession(sess.id),
+      });
+    }
+
+    // Local bookmarks jump the local pane; remote bookmarks are reached from
+    // each pane's own bookmark menu (the active remote store isn't global).
+    for (const b of bookmarks.filter((bk) => bk.side === "local")) {
+      cmds.push({
+        id: `bookmark:${b.id}`,
+        section: t("palette.sectionBookmarks"),
+        label: t("palette.goToBookmark", { name: b.label }),
+        keywords: `${b.label} ${b.path} bookmark go`,
+        icon: <BookmarkIcon className="size-4 shrink-0 text-foreground-muted" />,
+        run: () => useLocalPaneStore.getState().requestNavigate(b.path),
       });
     }
 
@@ -144,6 +161,7 @@ export function CommandPalette() {
     profiles,
     sessions,
     activeSessionId,
+    bookmarks,
     showHiddenFiles,
     showTransferToasts,
     connectWithProfile,

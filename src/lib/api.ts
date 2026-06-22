@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type AuthMethod = "password" | "key";
+export type AuthMethod = "password" | "key" | "agent";
 
 export interface ConnectionProfile {
   id: string;
@@ -40,6 +40,7 @@ export interface RemoteEntry {
   size: number;
   modified: number | null;
   permissions: number | null;
+  symlinkTarget: string | null;
 }
 
 export type ConnectionStatusState = "connecting" | "connected" | "error" | "disconnected";
@@ -101,12 +102,16 @@ export const connectionsApi = {
 
 export const localFsApi = {
   homeDir: () => invoke<string>("local_home_dir"),
+  listSshKeys: () => invoke<string[]>("list_ssh_keys"),
+  sshAgentAvailable: () => invoke<boolean>("ssh_agent_available"),
   listDir: (path: string) => invoke<RemoteEntry[]>("local_list_dir", { path }),
   search: (path: string, query: string) => invoke<RemoteEntry[]>("local_search", { path, query }),
   stat: (path: string) => invoke<RemoteEntry>("local_stat", { path }),
   mkdir: (path: string) => invoke<void>("local_mkdir", { path }),
   remove: (path: string, isDir: boolean) => invoke<void>("local_remove", { path, isDir }),
   rename: (from: string, to: string) => invoke<void>("local_rename", { from, to }),
+  chmod: (path: string, mode: number) => invoke<void>("local_chmod", { path, mode }),
+  copy: (from: string, to: string) => invoke<void>("local_copy", { from, to }),
   readPreview: async (path: string): Promise<Uint8Array> => {
     const bytes = await invoke<number[]>("local_read_preview", { path });
     return new Uint8Array(bytes);
@@ -153,6 +158,11 @@ export const sftpApi = {
     invoke<void>("sftp_remove", { connectionId, path, isDir }),
   rename: (connectionId: string, from: string, to: string) =>
     invoke<void>("sftp_rename", { connectionId, from, to }),
+  copy: (connectionId: string, from: string, to: string) =>
+    invoke<void>("sftp_copy", { connectionId, from, to }),
+  /** Stages remote paths to a temp dir; returns local paths for native drag-out. */
+  stageTemp: (connectionId: string, paths: string[]) =>
+    invoke<string[]>("sftp_stage_temp", { connectionId, paths }),
   chmod: (connectionId: string, path: string, mode: number) =>
     invoke<void>("sftp_chmod", { connectionId, path, mode }),
   readPreview: async (connectionId: string, path: string): Promise<Uint8Array> => {
@@ -184,6 +194,7 @@ export const transfersApi = {
   pause: (id: string) => invoke<void>("transfer_pause", { id }),
   resume: (id: string) => invoke<void>("transfer_resume", { id }),
   cancel: (id: string) => invoke<void>("transfer_cancel", { id }),
+  retry: (id: string) => invoke<void>("transfer_retry", { id }),
   list: () => invoke<TransferRecord[]>("transfer_list"),
   jobList: () => invoke<TransferJob[]>("transfer_job_list"),
   cancelJob: (jobId: string) => invoke<void>("transfer_cancel_job", { jobId }),

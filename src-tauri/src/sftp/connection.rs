@@ -13,6 +13,8 @@ pub enum Auth {
         key_path: String,
         passphrase: Option<String>,
     },
+    /// Authenticate via a running SSH agent (ssh-agent / SSH_AUTH_SOCK).
+    Agent,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,6 +27,9 @@ pub struct RemoteEntry {
     pub size: u64,
     pub modified: Option<i64>,
     pub permissions: Option<u32>,
+    /// For symlinks, the raw target path it points to (one hop, not resolved).
+    /// `None` for non-symlinks or when the target can't be read.
+    pub symlink_target: Option<String>,
 }
 
 /// Wraps a connected SFTP session. `Session`/`Sftp` are internally
@@ -74,6 +79,10 @@ impl SftpConnection {
         tcp.set_write_timeout(Some(Duration::from_secs(30)))?;
 
         let mut session = Session::new().map_err(AppError::Ssh)?;
+        // Negotiate zlib compression when the server supports it — a clear win
+        // over slower links for compressible payloads; no-op otherwise. Must be
+        // set before the handshake.
+        session.set_compress(true);
         session.set_tcp_stream(tcp);
         session.handshake().map_err(AppError::Ssh)?;
         Ok(session)
@@ -125,6 +134,10 @@ impl SftpConnection {
                     passphrase.as_deref(),
                 )?;
             }
+            Auth::Agent => {
+                // Tries every identity the agent holds until one authenticates.
+                session.userauth_agent(username)?;
+            }
         }
 
         if !session.authenticated() {
@@ -170,14 +183,23 @@ impl SftpConnection {
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
+                let is_symlink = stat.file_type().is_symlink();
                 RemoteEntry {
                     name,
-                    path: full_path.to_string_lossy().to_string(),
                     is_dir: stat.is_dir(),
-                    is_symlink: stat.file_type().is_symlink(),
+                    is_symlink,
                     size: stat.size.unwrap_or(0),
                     modified: stat.mtime.map(|t| t as i64),
                     permissions: stat.perm,
+                    symlink_target: if is_symlink {
+                        self.sftp
+                            .readlink(&full_path)
+                            .ok()
+                            .map(|p| p.to_string_lossy().to_string())
+                    } else {
+                        None
+                    },
+                    path: full_path.to_string_lossy().to_string(),
                 }
             })
             .collect();
@@ -217,6 +239,7 @@ impl SftpConnection {
                         size: stat.size.unwrap_or(0),
                         modified: stat.mtime.map(|t| t as i64),
                         permissions: stat.perm,
+                        symlink_target: None,
                     });
                     if out.len() >= SEARCH_LIMIT {
                         return Ok(out);
@@ -232,19 +255,30 @@ impl SftpConnection {
     }
 
     pub fn stat(&self, path: &str) -> AppResult<RemoteEntry> {
-        let stat = self.sftp.stat(Path::new(path))?;
+        // `lstat` so a symlink reports as a symlink (and we can read its
+        // target) rather than silently resolving to what it points at.
+        let stat = self.sftp.lstat(Path::new(path))?;
         let name = Path::new(path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string());
+        let is_symlink = stat.file_type().is_symlink();
         Ok(RemoteEntry {
             name,
             path: path.to_string(),
             is_dir: stat.is_dir(),
-            is_symlink: stat.file_type().is_symlink(),
+            is_symlink,
             size: stat.size.unwrap_or(0),
             modified: stat.mtime.map(|t| t as i64),
             permissions: stat.perm,
+            symlink_target: if is_symlink {
+                self.sftp
+                    .readlink(Path::new(path))
+                    .ok()
+                    .map(|p| p.to_string_lossy().to_string())
+            } else {
+                None
+            },
         })
     }
 
@@ -268,10 +302,95 @@ impl SftpConnection {
         Ok(())
     }
 
+    /// Copies a remote file or directory tree to another remote path. libssh2
+    /// has no server-side copy, so bytes stream through the client over the
+    /// same session — universal (works on chrooted SFTP-only accounts) at the
+    /// cost of round-tripping the data.
+    pub fn copy(&self, from: &str, to: &str) -> AppResult<()> {
+        let from = Path::new(from);
+        let to = Path::new(to);
+        let stat = self.sftp.lstat(from)?;
+        if stat.is_dir() {
+            self.copy_dir(from, to)
+        } else {
+            self.copy_file(from, to)
+        }
+    }
+
+    fn copy_file(&self, from: &Path, to: &Path) -> AppResult<()> {
+        use std::io::{Read, Write};
+        let mut src = self.sftp.open(from)?;
+        let mut dst = self.sftp.create(to)?;
+        let mut chunk = [0u8; 256 * 1024];
+        loop {
+            let n = src.read(&mut chunk)?;
+            if n == 0 {
+                break;
+            }
+            dst.write_all(&chunk[..n])?;
+        }
+        Ok(())
+    }
+
+    fn copy_dir(&self, from: &Path, to: &Path) -> AppResult<()> {
+        // Ignore "already exists" so copying into a partially-present tree works.
+        let _ = self.sftp.mkdir(to, 0o755);
+        for (child, stat) in self.sftp.readdir(from)? {
+            let Some(name) = child.file_name() else { continue };
+            let dst_child = to.join(name);
+            if stat.is_dir() {
+                self.copy_dir(&child, &dst_child)?;
+            } else {
+                self.copy_file(&child, &dst_child)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn chmod(&self, path: &str, mode: u32) -> AppResult<()> {
         let mut stat = self.sftp.stat(Path::new(path))?;
         stat.perm = Some(mode);
         self.sftp.setstat(Path::new(path), stat)?;
+        Ok(())
+    }
+
+    /// Downloads a remote file or directory tree to a local path (recursive).
+    /// Used to stage remote files in a temp dir for native drag-out.
+    pub fn download_path(&self, remote: &str, local: &Path) -> AppResult<()> {
+        let remote_path = Path::new(remote);
+        let stat = self.sftp.lstat(remote_path)?;
+        if stat.is_dir() {
+            std::fs::create_dir_all(local)?;
+            for (child, cstat) in self.sftp.readdir(remote_path)? {
+                let Some(name) = child.file_name() else { continue };
+                let local_child = local.join(name);
+                if cstat.is_dir() {
+                    self.download_path(&child.to_string_lossy(), &local_child)?;
+                } else {
+                    self.download_file_to(&child.to_string_lossy(), &local_child)?;
+                }
+            }
+            Ok(())
+        } else {
+            if let Some(parent) = local.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            self.download_file_to(remote, local)
+        }
+    }
+
+    fn download_file_to(&self, remote: &str, local: &Path) -> AppResult<()> {
+        use std::io::{Read, Write};
+        let mut src = self.sftp.open(Path::new(remote))?;
+        let mut dst = std::fs::File::create(local)?;
+        let mut chunk = [0u8; 256 * 1024];
+        loop {
+            let n = src.read(&mut chunk)?;
+            if n == 0 {
+                break;
+            }
+            dst.write_all(&chunk[..n])?;
+        }
         Ok(())
     }
 

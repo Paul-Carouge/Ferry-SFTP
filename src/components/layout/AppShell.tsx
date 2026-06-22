@@ -7,6 +7,7 @@ import { useSettingsStore } from "@/lib/stores/settingsStore";
 import { useUpdateStore } from "@/lib/stores/updateStore";
 import { useUiStore } from "@/lib/stores/uiStore";
 import { useEditWatchStore } from "@/lib/stores/editWatchStore";
+import { useBookmarksStore } from "@/lib/stores/bookmarksStore";
 import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { SplashScreen } from "@/components/layout/SplashScreen";
@@ -26,6 +27,7 @@ export function AppShell() {
   const initSettings = useSettingsStore((s) => s.init);
   const initEditWatch = useEditWatchStore((s) => s.init);
   const initUi = useUiStore((s) => s.init);
+  const initBookmarks = useBookmarksStore((s) => s.init);
   const togglePalette = useUiStore((s) => s.togglePalette);
   const checkForUpdateSilently = useUpdateStore((s) => s.checkSilently);
   const activeSessionId = useConnectionsStore((s) => s.activeSessionId);
@@ -41,9 +43,10 @@ export function AppShell() {
     initSettings();
     initEditWatch();
     initUi();
+    initBookmarks();
     checkForUpdateSilently();
     localFsApi.homeDir().then(setLocalHome).catch(() => {});
-  }, [initConnections, initTransfers, initSettings, initEditWatch, initUi, checkForUpdateSilently]);
+  }, [initConnections, initTransfers, initSettings, initEditWatch, initUi, initBookmarks, checkForUpdateSilently]);
 
   // Global Cmd/Ctrl+K toggles the command palette.
   useEffect(() => {

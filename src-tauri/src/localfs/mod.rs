@@ -44,6 +44,11 @@ fn entry_from_path(path: &Path) -> AppResult<RemoteEntry> {
         size,
         modified: mtime_of(&metadata),
         permissions: mode_of(&metadata),
+        symlink_target: if is_symlink {
+            fs::read_link(path).ok().map(|p| p.to_string_lossy().to_string())
+        } else {
+            None
+        },
     })
 }
 
@@ -119,6 +124,50 @@ pub fn remove(path: &str, is_dir: bool) -> AppResult<()> {
 
 pub fn rename(from: &str, to: &str) -> AppResult<()> {
     fs::rename(from, to)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+pub fn chmod(path: &str, mode: u32) -> AppResult<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub fn chmod(_path: &str, _mode: u32) -> AppResult<()> {
+    Err(crate::error::AppError::Other(
+        "changing permissions is not supported on this platform".into(),
+    ))
+}
+
+/// Recursively copies a file or directory tree from `src` to `dst`.
+pub fn copy(src: &str, dst: &str) -> AppResult<()> {
+    let src = Path::new(src);
+    let dst = Path::new(dst);
+    if fs::symlink_metadata(src)?.is_dir() {
+        copy_dir_recursive(src, dst)
+    } else {
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(src, dst)?;
+        Ok(())
+    }
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> AppResult<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else {
+            fs::copy(&from, &to)?;
+        }
+    }
     Ok(())
 }
 

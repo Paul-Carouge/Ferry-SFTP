@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { Modal } from "@/components/common/Modal";
 import { Button } from "@/components/common/Button";
 import { useConnectionsStore } from "@/lib/stores/connectionsStore";
 import { useT } from "@/lib/i18n/useT";
-import type { AuthMethod, ConnectionProfile } from "@/lib/api";
+import { localFsApi, type AuthMethod, type ConnectionProfile } from "@/lib/api";
 
 const COLORS = ["#6366f1", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4", "#a855f7", "#6b7280"];
 
@@ -55,6 +55,8 @@ export function ConnectionDialog({
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detectedKeys, setDetectedKeys] = useState<string[]>([]);
+  const [agentAvailable, setAgentAvailable] = useState(true);
   const saveProfile = useConnectionsStore((s) => s.saveProfile);
   const connectWithProfile = useConnectionsStore((s) => s.connectWithProfile);
   const quickConnect = useConnectionsStore((s) => s.quickConnect);
@@ -85,6 +87,13 @@ export function ConnectionDialog({
     }
   }
 
+  // Discover usable keys + agent availability once the dialog opens.
+  useEffect(() => {
+    if (!open) return;
+    localFsApi.listSshKeys().then(setDetectedKeys).catch(() => setDetectedKeys([]));
+    localFsApi.sshAgentAvailable().then(setAgentAvailable).catch(() => setAgentAvailable(false));
+  }, [open]);
+
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
@@ -99,7 +108,12 @@ export function ConnectionDialog({
     setConnecting(true);
     try {
       const port = Number.parseInt(form.port, 10) || 22;
-      const secret = form.authMethod === "password" ? form.password : form.passphrase;
+      const secret =
+        form.authMethod === "password"
+          ? form.password
+          : form.authMethod === "key"
+            ? form.passphrase
+            : "";
 
       if (form.save) {
         const profile = await saveProfile({
@@ -183,7 +197,7 @@ export function ConnectionDialog({
         </Field>
 
         <div className="col-span-2 flex gap-1.5 rounded-lg bg-surface-2 p-1">
-          {(["password", "key"] as AuthMethod[]).map((method) => (
+          {(["password", "key", "agent"] as AuthMethod[]).map((method) => (
             <button
               key={method}
               onClick={() => update("authMethod", method)}
@@ -193,7 +207,11 @@ export function ConnectionDialog({
                   : "text-foreground-muted hover:text-foreground"
               }`}
             >
-              {method === "password" ? t("connDialog.password") : t("connDialog.sshKey")}
+              {method === "password"
+                ? t("connDialog.password")
+                : method === "key"
+                  ? t("connDialog.sshKey")
+                  : t("connDialog.agent")}
             </button>
           ))}
         </div>
@@ -207,12 +225,13 @@ export function ConnectionDialog({
               onChange={(e) => update("password", e.target.value)}
             />
           </Field>
-        ) : (
+        ) : form.authMethod === "key" ? (
           <>
             <Field label={t("connDialog.privateKey")} className="col-span-2">
               <div className="flex gap-2">
                 <input
                   className={inputClass}
+                  list="ferry-ssh-keys"
                   placeholder={t("connDialog.keyPathPlaceholder")}
                   value={form.keyPath}
                   onChange={(e) => update("keyPath", e.target.value)}
@@ -221,6 +240,27 @@ export function ConnectionDialog({
                   {t("connDialog.browse")}
                 </Button>
               </div>
+              {detectedKeys.length > 0 && (
+                <datalist id="ferry-ssh-keys">
+                  {detectedKeys.map((k) => (
+                    <option key={k} value={k} />
+                  ))}
+                </datalist>
+              )}
+              {detectedKeys.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {detectedKeys.map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => update("keyPath", k)}
+                      className="rounded-full border border-border px-2 py-0.5 text-xs text-foreground-muted hover:border-accent hover:text-foreground"
+                    >
+                      {k.split("/").pop()}
+                    </button>
+                  ))}
+                </div>
+              )}
             </Field>
             <Field label={t("connDialog.passphrase")} className="col-span-2">
               <input
@@ -231,6 +271,13 @@ export function ConnectionDialog({
               />
             </Field>
           </>
+        ) : (
+          <p className="col-span-2 rounded-lg border border-border bg-surface-2/50 px-3 py-2 text-xs text-foreground-muted">
+            {t("connDialog.agentDesc")}
+            {!agentAvailable && (
+              <span className="mt-1 block text-amber-500">{t("connDialog.agentUnavailable")}</span>
+            )}
+          </p>
         )}
 
         <Field label={t("connDialog.defaultRemotePath")} className="col-span-2">

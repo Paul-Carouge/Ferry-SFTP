@@ -11,6 +11,7 @@ use tauri::{AppHandle, Manager};
 pub enum AuthMethod {
     Password,
     Key,
+    Agent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

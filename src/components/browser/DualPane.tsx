@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Link2, Link2Off } from "lucide-react";
+import { Link2, Link2Off, GitCompare } from "lucide-react";
 import { FilePane } from "@/components/browser/FilePane";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { ConflictDialog } from "@/components/transfers/ConflictDialog";
@@ -35,6 +35,7 @@ export function DualPane({
   );
   const [splitPercent, setSplitPercent] = useState(50);
   const [syncBrowsing, setSyncBrowsing] = useState(false);
+  const [compare, setCompare] = useState(false);
   const [preview, setPreview] = useState<{ side: "local" | "remote"; entry: RemoteEntry } | null>(
     null,
   );
@@ -280,6 +281,7 @@ export function DualPane({
           onPreview={(entry) => setPreview({ side: "local", entry })}
           onTransfer={sendTransfer}
           onNavigate={(next, prev) => mirrorNav(prev, next, remoteStore)}
+          compareEnabled={compare}
         />
       </div>
       <div
@@ -298,6 +300,18 @@ export function DualPane({
       >
         {syncBrowsing ? <Link2 className="size-3" /> : <Link2Off className="size-3" />}
       </button>
+      <button
+        onClick={() => setCompare((v) => !v)}
+        title={compare ? t("filePane.compareClear") : t("filePane.compare")}
+        style={{ left: `${splitPercent}%` }}
+        className={`absolute top-8 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border px-2 py-0.5 text-xs shadow-sm transition-colors ${
+          compare
+            ? "border-accent bg-accent/15 text-accent"
+            : "border-border bg-surface-1 text-foreground-muted hover:text-foreground"
+        }`}
+      >
+        <GitCompare className="size-3" />
+      </button>
       <div ref={remotePaneRef} style={{ width: `${100 - splitPercent}%` }} className="flex min-w-0">
         <FilePane
           side="remote"
@@ -309,6 +323,7 @@ export function DualPane({
           onPreview={(entry) => setPreview({ side: "remote", entry })}
           onTransfer={sendTransfer}
           onNavigate={(next, prev) => mirrorNav(prev, next, useLocalPaneStore)}
+          compareEnabled={compare}
         />
       </div>
 

@@ -58,11 +58,15 @@ pub fn save_connection(
     };
 
     if let Some(secret) = input.secret {
+        // Agent auth holds no secret of its own, so there's nothing to store.
         let kind = match profile.auth_method {
-            AuthMethod::Password => secrets::SecretKind::Password,
-            AuthMethod::Key => secrets::SecretKind::Passphrase,
+            AuthMethod::Password => Some(secrets::SecretKind::Password),
+            AuthMethod::Key => Some(secrets::SecretKind::Passphrase),
+            AuthMethod::Agent => None,
         };
-        secrets::set_secret(&id, kind, &secret)?;
+        if let Some(kind) = kind {
+            secrets::set_secret(&id, kind, &secret)?;
+        }
     }
 
     super::upsert(&app, profile)
@@ -78,6 +82,7 @@ pub fn get_connection_secret(id: String, auth_method: AuthMethod) -> AppResult<O
     let kind = match auth_method {
         AuthMethod::Password => secrets::SecretKind::Password,
         AuthMethod::Key => secrets::SecretKind::Passphrase,
+        AuthMethod::Agent => return Ok(None),
     };
     secrets::get_secret(&id, kind)
 }

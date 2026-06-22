@@ -36,6 +36,10 @@ const en = {
   "connDialog.username": "Username",
   "connDialog.password": "Password",
   "connDialog.sshKey": "SSH Key",
+  "connDialog.agent": "SSH Agent",
+  "connDialog.agentDesc": "Authenticate using the keys loaded in your running SSH agent.",
+  "connDialog.agentUnavailable": "No SSH agent detected (SSH_AUTH_SOCK is not set).",
+  "connDialog.detectedKeys": "Detected keys",
   "connDialog.privateKey": "Private key",
   "connDialog.browse": "Browse",
   "connDialog.keyPathPlaceholder": "~/.ssh/id_ed25519",
@@ -118,6 +122,7 @@ const en = {
   "transfers.pause": "Pause",
   "transfers.resume": "Resume",
   "transfers.cancel": "Cancel",
+  "transfers.retry": "Retry (resume)",
   "transfers.jobProgress": "{{done}}/{{total}} files",
 
   "settings.title": "Settings",
@@ -181,6 +186,37 @@ const en = {
   "toast.editSyncFailed": "Couldn't sync {{name}}: {{error}}",
   "toast.editStopped": "Stopped syncing {{name}}",
   "toast.editFailed": "Couldn't open for editing: {{error}}",
+
+  "common.apply": "Apply",
+
+  "perms.title": "Permissions — {{name}}",
+  "perms.owner": "Owner",
+  "perms.group": "Group",
+  "perms.other": "Other",
+  "perms.read": "Read",
+  "perms.write": "Write",
+  "perms.exec": "Execute",
+  "perms.octal": "Octal",
+  "filePane.permissions": "Permissions…",
+  "toast.couldntChmod": "Couldn't change permissions: {{error}}",
+
+  "filePane.copy": "Copy",
+  "filePane.cut": "Cut",
+  "filePane.paste": "Paste {{count}} item(s)",
+  "toast.couldntCopy": "Couldn't copy: {{error}}",
+  "toast.pasteDone": "Pasted {{count}} item(s)",
+  "filePane.selectedSize": "{{count}} selected · {{size}}",
+
+  "filePane.compare": "Compare with other side",
+  "filePane.compareOn": "Comparing — highlighting differences",
+  "filePane.compareClear": "Clear comparison",
+  "toast.compareFailed": "Couldn't compare folders: {{error}}",
+
+  "bookmarks.title": "Bookmarks",
+  "filePane.bookmark": "Bookmark this folder",
+  "filePane.bookmarkAdded": "Bookmarked {{path}}",
+  "palette.sectionBookmarks": "Bookmarks",
+  "palette.goToBookmark": "Go to {{name}}",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -223,6 +259,10 @@ const fr: Record<TranslationKey, string> = {
   "connDialog.username": "Utilisateur",
   "connDialog.password": "Mot de passe",
   "connDialog.sshKey": "Clé SSH",
+  "connDialog.agent": "Agent SSH",
+  "connDialog.agentDesc": "S'authentifier avec les clés chargées dans votre agent SSH.",
+  "connDialog.agentUnavailable": "Aucun agent SSH détecté (SSH_AUTH_SOCK non défini).",
+  "connDialog.detectedKeys": "Clés détectées",
   "connDialog.privateKey": "Clé privée",
   "connDialog.browse": "Parcourir",
   "connDialog.keyPathPlaceholder": "~/.ssh/id_ed25519",
@@ -305,6 +345,7 @@ const fr: Record<TranslationKey, string> = {
   "transfers.pause": "Pause",
   "transfers.resume": "Reprendre",
   "transfers.cancel": "Annuler",
+  "transfers.retry": "Réessayer (reprendre)",
   "transfers.jobProgress": "{{done}}/{{total}} fichiers",
 
   "settings.title": "Paramètres",
@@ -368,6 +409,37 @@ const fr: Record<TranslationKey, string> = {
   "toast.editSyncFailed": "Échec de synchro de {{name}} : {{error}}",
   "toast.editStopped": "Arrêt de la synchro de {{name}}",
   "toast.editFailed": "Ouverture pour édition impossible : {{error}}",
+
+  "common.apply": "Appliquer",
+
+  "perms.title": "Permissions — {{name}}",
+  "perms.owner": "Propriétaire",
+  "perms.group": "Groupe",
+  "perms.other": "Autres",
+  "perms.read": "Lecture",
+  "perms.write": "Écriture",
+  "perms.exec": "Exécution",
+  "perms.octal": "Octal",
+  "filePane.permissions": "Permissions…",
+  "toast.couldntChmod": "Impossible de changer les permissions : {{error}}",
+
+  "filePane.copy": "Copier",
+  "filePane.cut": "Couper",
+  "filePane.paste": "Coller {{count}} élément(s)",
+  "toast.couldntCopy": "Impossible de copier : {{error}}",
+  "toast.pasteDone": "{{count}} élément(s) collé(s)",
+  "filePane.selectedSize": "{{count}} sélectionné(s) · {{size}}",
+
+  "filePane.compare": "Comparer avec l'autre côté",
+  "filePane.compareOn": "Comparaison — différences mises en évidence",
+  "filePane.compareClear": "Effacer la comparaison",
+  "toast.compareFailed": "Impossible de comparer les dossiers : {{error}}",
+
+  "bookmarks.title": "Favoris",
+  "filePane.bookmark": "Ajouter ce dossier aux favoris",
+  "filePane.bookmarkAdded": "Dossier ajouté : {{path}}",
+  "palette.sectionBookmarks": "Favoris",
+  "palette.goToBookmark": "Aller à {{name}}",
 };
 
 export const translations = { en, fr } satisfies Record<string, Record<TranslationKey, string>>;

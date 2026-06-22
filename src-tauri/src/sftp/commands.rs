@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, State};
 pub enum AuthInput {
     Password,
     Key,
+    Agent,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,6 +99,7 @@ pub async fn sftp_connect(
                 .ok_or_else(|| AppError::InvalidInput("key_path required for key auth".into()))?,
             passphrase: input.passphrase,
         },
+        AuthInput::Agent => Auth::Agent,
     };
 
     let host = input.host;
@@ -278,6 +280,19 @@ pub async fn sftp_rename(
 }
 
 #[tauri::command]
+pub async fn sftp_copy(
+    manager: State<'_, SftpManager>,
+    connection_id: String,
+    from: String,
+    to: String,
+) -> AppResult<()> {
+    let conn = manager.get(&connection_id)?;
+    tauri::async_runtime::spawn_blocking(move || conn.copy(&from, &to))
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+}
+
+#[tauri::command]
 pub async fn sftp_chmod(
     manager: State<'_, SftpManager>,
     connection_id: String,
@@ -288,6 +303,34 @@ pub async fn sftp_chmod(
     tauri::async_runtime::spawn_blocking(move || conn.chmod(&path, mode))
         .await
         .map_err(|e| AppError::Other(e.to_string()))?
+}
+
+/// Downloads the given remote paths into a fresh temp dir and returns the local
+/// paths, so the frontend can start a native OS file drag (drag-out to Finder).
+#[tauri::command]
+pub async fn sftp_stage_temp(
+    manager: State<'_, SftpManager>,
+    connection_id: String,
+    paths: Vec<String>,
+) -> AppResult<Vec<String>> {
+    let conn = manager.get(&connection_id)?;
+    tauri::async_runtime::spawn_blocking(move || -> AppResult<Vec<String>> {
+        let base = std::env::temp_dir().join(format!("ferry-drag-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base)?;
+        let mut out = Vec::new();
+        for p in &paths {
+            let name = std::path::Path::new(p)
+                .file_name()
+                .map(|n| n.to_os_string())
+                .unwrap_or_else(|| std::ffi::OsString::from("file"));
+            let dest = base.join(&name);
+            conn.download_path(p, &dest)?;
+            out.push(dest.to_string_lossy().to_string());
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))?
 }
 
 const PREVIEW_MAX_BYTES: u64 = 8 * 1024 * 1024;

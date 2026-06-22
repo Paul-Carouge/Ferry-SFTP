@@ -50,6 +50,10 @@ pub struct TransferRecord {
     pub speed_bps: u64,
     pub created_at: i64,
     pub job_id: Option<String>,
+    /// Set when this transfer is being retried and should continue from the
+    /// destination's existing byte count instead of starting over.
+    #[serde(default)]
+    pub resume: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -221,6 +225,46 @@ impl TransferManager {
         Ok(self.set_state(id, TransferState::Cancelled, None))
     }
 
+    /// Re-queues a finished/errored/cancelled transfer to resume from the
+    /// destination's current size. Returns the connection id to (re)start its
+    /// worker, or `None` if the transfer is unknown or still active.
+    fn requeue_for_retry(&self, id: &str) -> Option<String> {
+        let connection_id = {
+            let mut records = self.records.lock().unwrap();
+            let record = records.get_mut(id)?;
+            if is_active(record.state) {
+                return None;
+            }
+            record.state = TransferState::Queued;
+            record.error = None;
+            record.resume = true;
+            record.speed_bps = 0;
+            record.connection_id.clone()
+        };
+        match self.control_for(id) {
+            Some(c) => {
+                c.cancelled.store(false, Ordering::SeqCst);
+                c.paused.store(false, Ordering::SeqCst);
+            }
+            None => {
+                self.controls.lock().unwrap().insert(
+                    id.to_string(),
+                    Arc::new(TransferControl {
+                        paused: AtomicBool::new(false),
+                        cancelled: AtomicBool::new(false),
+                    }),
+                );
+            }
+        }
+        self.queues
+            .lock()
+            .unwrap()
+            .entry(connection_id.clone())
+            .or_default()
+            .push_back(id.to_string());
+        Some(connection_id)
+    }
+
     fn set_state_if_running(&self, id: &str, state: TransferState) -> Option<TransferRecord> {
         let mut records = self.records.lock().unwrap();
         let record = records.get_mut(id)?;
@@ -268,6 +312,7 @@ pub fn spawn_enqueue(
         error: None,
         speed_bps: 0,
         created_at,
+        resume: false,
     };
 
     let tm = app.state::<TransferManager>();
@@ -329,6 +374,26 @@ pub fn spawn_enqueue_job(
     job_id
 }
 
+/// Re-queues a transfer to continue from where it stopped and (re)starts the
+/// connection's worker if needed.
+pub fn spawn_retry(app: AppHandle, transfer_id: String) -> AppResult<()> {
+    let tm = app.state::<TransferManager>();
+    let connection_id = tm
+        .requeue_for_retry(&transfer_id)
+        .ok_or_else(|| AppError::NotFound(format!("retryable transfer {transfer_id}")))?;
+    if let Some(r) = tm.get_record(&transfer_id) {
+        emit_transfer(&app, &r);
+    }
+    let already_running = tm.mark_worker_active(&connection_id);
+    if !already_running {
+        let app_for_worker = app.clone();
+        tauri::async_runtime::spawn(async move {
+            run_worker(app_for_worker, connection_id).await;
+        });
+    }
+    Ok(())
+}
+
 async fn run_worker(app: AppHandle, connection_id: String) {
     loop {
         let next_id = {
@@ -378,6 +443,8 @@ async fn process_transfer(app: &AppHandle, connection_id: &str, transfer_id: &st
     let direction = record.direction;
     let local_path = record.local_path.clone();
     let remote_path = record.remote_path.clone();
+    let resume = record.resume;
+    let total_bytes = record.total_bytes;
 
     let result = tauri::async_runtime::spawn_blocking(move || {
         copy_loop(
@@ -388,6 +455,8 @@ async fn process_transfer(app: &AppHandle, connection_id: &str, transfer_id: &st
             direction,
             &local_path,
             &remote_path,
+            resume,
+            total_bytes,
         )
     })
     .await
@@ -417,10 +486,24 @@ fn open_src(
     direction: TransferDirection,
     local_path: &str,
     remote_path: &str,
+    offset: u64,
 ) -> AppResult<Box<dyn Read + Send>> {
+    use std::io::{Seek, SeekFrom};
     match direction {
-        TransferDirection::Upload => Ok(Box::new(std::fs::File::open(local_path)?)),
-        TransferDirection::Download => Ok(Box::new(conn.sftp().open(Path::new(remote_path))?)),
+        TransferDirection::Upload => {
+            let mut f = std::fs::File::open(local_path)?;
+            if offset > 0 {
+                f.seek(SeekFrom::Start(offset))?;
+            }
+            Ok(Box::new(f))
+        }
+        TransferDirection::Download => {
+            let mut f = conn.sftp().open(Path::new(remote_path))?;
+            if offset > 0 {
+                f.seek(SeekFrom::Start(offset))?;
+            }
+            Ok(Box::new(f))
+        }
     }
 }
 
@@ -429,18 +512,56 @@ fn open_dst(
     direction: TransferDirection,
     local_path: &str,
     remote_path: &str,
+    offset: u64,
 ) -> AppResult<Box<dyn Write + Send>> {
+    use ssh2::{OpenFlags, OpenType};
     match direction {
-        TransferDirection::Upload => Ok(Box::new(conn.sftp().create(Path::new(remote_path))?)),
+        TransferDirection::Upload => {
+            if offset > 0 {
+                // Append to the partially-uploaded remote file.
+                let f = conn.sftp().open_mode(
+                    Path::new(remote_path),
+                    OpenFlags::WRITE | OpenFlags::APPEND,
+                    0o644,
+                    OpenType::File,
+                )?;
+                Ok(Box::new(f))
+            } else {
+                Ok(Box::new(conn.sftp().create(Path::new(remote_path))?))
+            }
+        }
         TransferDirection::Download => {
             if let Some(parent) = Path::new(local_path).parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            Ok(Box::new(std::fs::File::create(local_path)?))
+            if offset > 0 {
+                Ok(Box::new(std::fs::OpenOptions::new().append(true).open(local_path)?))
+            } else {
+                Ok(Box::new(std::fs::File::create(local_path)?))
+            }
         }
     }
 }
 
+/// Size already present at the destination, used to resume a retried transfer.
+fn existing_dst_size(
+    conn: &SftpConnection,
+    direction: TransferDirection,
+    local_path: &str,
+    remote_path: &str,
+) -> u64 {
+    match direction {
+        TransferDirection::Download => std::fs::metadata(local_path).map(|m| m.len()).unwrap_or(0),
+        TransferDirection::Upload => conn
+            .sftp()
+            .stat(Path::new(remote_path))
+            .ok()
+            .and_then(|s| s.size)
+            .unwrap_or(0),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn copy_loop(
     app: &AppHandle,
     transfer_id: &str,
@@ -449,14 +570,34 @@ fn copy_loop(
     direction: TransferDirection,
     local_path: &str,
     remote_path: &str,
+    resume: bool,
+    total_bytes: u64,
 ) -> AppResult<TransferOutcome> {
-    let mut src = open_src(conn, direction, local_path, remote_path)?;
-    let mut dst = open_dst(conn, direction, local_path, remote_path)?;
+    // On a retry, continue from whatever the destination already holds. A
+    // mismatch where the partial is larger than the source means the partial
+    // is stale, so restart from zero instead of producing a corrupt file.
+    let mut offset = if resume {
+        existing_dst_size(conn, direction, local_path, remote_path)
+    } else {
+        0
+    };
+    if offset > total_bytes {
+        offset = 0;
+    }
+    if resume && offset > 0 && offset == total_bytes {
+        if let Some(r) = app.state::<TransferManager>().set_state(transfer_id, TransferState::Completed, None) {
+            emit_transfer(app, &r);
+        }
+        return Ok(TransferOutcome::Completed);
+    }
+
+    let mut src = open_src(conn, direction, local_path, remote_path, offset)?;
+    let mut dst = open_dst(conn, direction, local_path, remote_path, offset)?;
 
     let mut buf = vec![0u8; CHUNK_SIZE];
-    let mut transferred: u64 = 0;
+    let mut transferred: u64 = offset;
     let mut last_emit = Instant::now();
-    let mut last_emit_bytes: u64 = 0;
+    let mut last_emit_bytes: u64 = offset;
     let tm = app.state::<TransferManager>();
 
     loop {

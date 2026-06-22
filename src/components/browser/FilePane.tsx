@@ -5,20 +5,25 @@
    react-hooks/set-state-in-effect through their call chain, so it's disabled file-wide. */
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
 import { open as openDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
-import { ChevronDown, ChevronUp, FolderPlus, RefreshCw, Search } from "lucide-react";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
+import { Bookmark, ChevronDown, ChevronUp, FolderPlus, RefreshCw, Search, X } from "lucide-react";
 import { Breadcrumbs } from "@/components/browser/Breadcrumbs";
 import { FileRow } from "@/components/browser/FileRow";
 import { ContextMenu, type ContextMenuItem } from "@/components/common/ContextMenu";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { PromptDialog } from "@/components/common/PromptDialog";
+import { PermissionsDialog } from "@/components/browser/PermissionsDialog";
+import { formatBytes } from "@/lib/format";
 import { localFsApi, sftpApi, type RemoteEntry, type TransferDirection } from "@/lib/api";
 import { joinPath, parentPath } from "@/lib/path";
 import { useToastStore } from "@/lib/stores/toastStore";
 import { useSettingsStore } from "@/lib/stores/settingsStore";
 import { useEditWatchStore } from "@/lib/stores/editWatchStore";
+import { useClipboardStore } from "@/lib/stores/clipboardStore";
+import { useBookmarksStore } from "@/lib/stores/bookmarksStore";
 import { useStaggerOnChange } from "@/lib/animations";
 import { useT } from "@/lib/i18n/useT";
 import type { PaneEntry } from "@/lib/stores/paneStore";
@@ -62,6 +67,7 @@ export function FilePane({
   onPreview,
   onTransfer,
   onNavigate,
+  compareEnabled,
 }: {
   side: "local" | "remote";
   connectionId?: string;
@@ -70,6 +76,8 @@ export function FilePane({
   store: UseBoundStore<StoreApi<PaneStoreState>>;
   /** The other pane's store, used to know where to save/send files initiated from a context menu (no drag target to read a destination from). */
   peerStore: UseBoundStore<StoreApi<PaneStoreState>>;
+  /** When on, each row is tinted by how it differs from the same-named entry in the peer pane. */
+  compareEnabled?: boolean;
   onPreview: (entry: RemoteEntry) => void;
   /** Plans/resolves conflicts/enqueues a transfer; owned by the parent DualPane so both panes and OS drag-drop share one conflict-resolution flow. */
   onTransfer: (
@@ -108,11 +116,39 @@ export function FilePane({
   const startEdit = useEditWatchStore((s) => s.start);
   const stopEdit = useEditWatchStore((s) => s.stop);
   const editWatches = useEditWatchStore((s) => s.watches);
+  const clipboardCount = useClipboardStore((s) => s.items.length);
+  const bookmarks = useBookmarksStore((s) => s.bookmarks);
+  const addBookmark = useBookmarksStore((s) => s.add);
+  const removeBookmark = useBookmarksStore((s) => s.remove);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const sideBookmarks = bookmarks.filter((b) => b.side === side);
+  const peerEntries = peerStore((s) => s.entries);
+
+  const compareMap = useMemo(() => {
+    if (!compareEnabled) return null;
+    const m = new Map<string, PaneEntry>();
+    for (const e of peerEntries) m.set(e.name, e);
+    return m;
+  }, [compareEnabled, peerEntries]);
+
+  function compareStatus(entry: RemoteEntry): import("@/components/browser/FileRow").CompareStatus | undefined {
+    if (!compareMap) return undefined;
+    const peer = compareMap.get(entry.name);
+    if (!peer) return "onlyHere";
+    if (entry.isDir || peer.isDir) return "same";
+    const tm = entry.modified ?? 0;
+    const pm = peer.modified ?? 0;
+    if (tm > pm) return "newer";
+    if (tm < pm) return "older";
+    if (entry.size !== peer.size) return "differ";
+    return "same";
+  }
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; entry?: RemoteEntry; batch?: RemoteEntry[] } | null>(null);
   const [deleting, setDeleting] = useState<RemoteEntry | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<RemoteEntry[] | null>(null);
   const [renaming, setRenaming] = useState<RemoteEntry | null>(null);
+  const [permsEntry, setPermsEntry] = useState<RemoteEntry | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -234,6 +270,56 @@ export function FilePane({
       reload();
     } catch (err) {
       pushToast(t("toast.couldntRename", { error: String(err) }), "error");
+    }
+  }
+
+  async function applyPermissions(entry: RemoteEntry, mode: number) {
+    setPermsEntry(null);
+    try {
+      if (side === "local") await localFsApi.chmod(entry.path, mode);
+      else await sftpApi.chmod(connectionId!, entry.path, mode);
+      reload();
+    } catch (err) {
+      pushToast(t("toast.couldntChmod", { error: String(err) }), "error");
+    }
+  }
+
+  function clipCopy(items: RemoteEntry[], mode: "copy" | "cut") {
+    if (!items.length) return;
+    useClipboardStore.getState().set(items, side, connectionId, mode);
+    pushToast(
+      t(mode === "cut" ? "filePane.cut" : "filePane.copy") + ` · ${items.length}`,
+      "success",
+    );
+  }
+
+  async function paste() {
+    const clip = useClipboardStore.getState();
+    if (!clip.items.length || !clip.side) return;
+    const sameFs = clip.side === side && (side === "local" || clip.connectionId === connectionId);
+    try {
+      for (const item of clip.items) {
+        const dest = joinPath(cwd, item.name);
+        if (sameFs) {
+          if (clip.mode === "cut") {
+            if (side === "local") await localFsApi.rename(item.path, dest);
+            else await sftpApi.rename(connectionId!, item.path, dest);
+          } else if (side === "local") {
+            await localFsApi.copy(item.path, dest);
+          } else {
+            await sftpApi.copy(connectionId!, item.path, dest);
+          }
+        } else {
+          // Different filesystem: paste is a transfer (download into local, upload into remote).
+          const direction: TransferDirection = side === "local" ? "download" : "upload";
+          await onTransfer(direction, item.path, dest, item.isDir, item.size);
+        }
+      }
+      if (sameFs && clip.mode === "cut") useClipboardStore.getState().clear();
+      pushToast(t("toast.pasteDone", { count: clip.items.length }), "success");
+      reload();
+    } catch (err) {
+      pushToast(t("toast.couldntCopy", { error: String(err) }), "error");
     }
   }
 
@@ -378,6 +464,20 @@ export function FilePane({
       })),
     );
     e.dataTransfer.effectAllowed = "copy";
+
+    // Native drag-out: dragging remote files toward another app (Finder, mail,
+    // chat) downloads them to a temp dir then hands the local paths to the OS.
+    // Cross-pane in-app drops still work via the HTML5 payload set above.
+    if (side === "remote" && connectionId) {
+      void (async () => {
+        try {
+          const localPaths = await sftpApi.stageTemp(connectionId, dragEntries.map((en) => en.path));
+          if (localPaths.length) await startDrag({ item: localPaths, icon: localPaths[0] });
+        } catch {
+          // Drag-out is best-effort; in-app drag still functions.
+        }
+      })();
+    }
   }
 
   function handleDrop(e: DragEvent) {
@@ -472,6 +572,21 @@ export function FilePane({
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       setCreatingFolder(true);
+    } else if (mod && e.key.toLowerCase() === "c") {
+      const items = sel.length ? sel : focused ? [focused] : [];
+      if (items.length) {
+        e.preventDefault();
+        clipCopy(items, "copy");
+      }
+    } else if (mod && e.key.toLowerCase() === "x") {
+      const items = sel.length ? sel : focused ? [focused] : [];
+      if (items.length) {
+        e.preventDefault();
+        clipCopy(items, "cut");
+      }
+    } else if (mod && e.key.toLowerCase() === "v") {
+      e.preventDefault();
+      void paste();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       moveActive(1, e.shiftKey);
@@ -553,7 +668,15 @@ export function FilePane({
       );
     }
     items.push(
+      { label: t("filePane.copy"), onClick: () => clipCopy([entry], "copy"), separatorBefore: true },
+      { label: t("filePane.cut"), onClick: () => clipCopy([entry], "cut") },
+    );
+    if (clipboardCount > 0) {
+      items.push({ label: t("filePane.paste", { count: clipboardCount }), onClick: () => void paste() });
+    }
+    items.push(
       { label: t("filePane.rename"), onClick: () => setRenaming(entry), separatorBefore: true },
+      { label: t("filePane.permissions"), onClick: () => setPermsEntry(entry) },
       { label: t("filePane.delete"), onClick: () => setDeleting(entry), danger: true },
     );
     return items;
@@ -565,6 +688,8 @@ export function FilePane({
         label: t("filePane.sendSelectedToOtherSide", { count: items.length }),
         onClick: () => void sendBatchToOtherSide(items),
       },
+      { label: t("filePane.copy"), onClick: () => clipCopy(items, "copy"), separatorBefore: true },
+      { label: t("filePane.cut"), onClick: () => clipCopy(items, "cut") },
       {
         label: t("filePane.deleteSelected", { count: items.length }),
         onClick: () => setDeletingBatch(items),
@@ -598,6 +723,17 @@ export function FilePane({
       { label: t("filePane.copyPath"), onClick: () => void copyText(cwd, "filePane.copiedPath") },
       { label: t("filePane.refresh"), onClick: () => reload() },
     ];
+    if (clipboardCount > 0) {
+      items.push({ label: t("filePane.paste", { count: clipboardCount }), onClick: () => void paste() });
+    }
+    items.push({
+      label: t("filePane.bookmark"),
+      onClick: () => {
+        addBookmark(cwd, side);
+        pushToast(t("filePane.bookmarkAdded", { path: cwd }), "success");
+      },
+      separatorBefore: true,
+    });
     if (side === "local") {
       items.push(
         { label: t("filePane.revealInFinder"), onClick: () => void nativeAction(() => localFsApi.reveal(cwd)), separatorBefore: true },
@@ -631,7 +767,47 @@ export function FilePane({
         <span className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">
           {title}
         </span>
-        <div className="flex items-center gap-1">
+        <div className="relative flex items-center gap-1">
+          <button
+            onClick={() => setBookmarksOpen((v) => !v)}
+            className={`rounded-md p-1 hover:bg-surface-2 hover:text-foreground ${
+              sideBookmarks.length ? "text-accent" : "text-foreground-muted"
+            }`}
+            title={t("bookmarks.title")}
+          >
+            <Bookmark className="size-3.5" />
+          </button>
+          {bookmarksOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setBookmarksOpen(false)} />
+              <div className="absolute right-0 top-7 z-40 max-h-64 w-56 overflow-y-auto rounded-lg border border-border bg-surface-1 py-1 shadow-lg">
+                {sideBookmarks.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-foreground-muted">{t("filePane.emptyFolder")}</p>
+                ) : (
+                  sideBookmarks.map((b) => (
+                    <div key={b.id} className="group flex items-center justify-between px-1">
+                      <button
+                        onClick={() => {
+                          setBookmarksOpen(false);
+                          load(b.path);
+                        }}
+                        title={b.path}
+                        className="flex-1 truncate rounded-md px-2 py-1 text-left text-sm text-foreground hover:bg-surface-2"
+                      >
+                        {b.label}
+                      </button>
+                      <button
+                        onClick={() => removeBookmark(b.id)}
+                        className="rounded-md p-1 text-foreground-muted opacity-0 hover:text-danger group-hover:opacity-100"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
           <button
             onClick={() => setCreatingFolder(true)}
             className="rounded-md p-1 text-foreground-muted hover:bg-surface-2 hover:text-foreground"
@@ -744,6 +920,7 @@ export function FilePane({
                 isActive={activePath === entry.path}
                 subPath={subPath}
                 isDropTarget={dropTarget === entry.path}
+                compareStatus={compareStatus(entry)}
                 onClick={(e) => {
                   setActivePath(entry.path);
                   toggleSelected(entry.path, !(e.metaKey || e.ctrlKey));
@@ -762,7 +939,12 @@ export function FilePane({
 
       {selected.size > 0 && (
         <div className="shrink-0 border-t border-border px-3 py-1.5 text-xs text-foreground-muted">
-          {t("filePane.selectedCount", { count: selected.size })}
+          {t("filePane.selectedSize", {
+            count: selected.size,
+            size: formatBytes(
+              filtered.filter((e) => selected.has(e.path) && !e.isDir).reduce((sum, e) => sum + (e.size ?? 0), 0),
+            ),
+          })}
         </div>
       )}
 
@@ -809,6 +991,13 @@ export function FilePane({
         confirmLabel={t("filePane.rename")}
         onCancel={() => setRenaming(null)}
         onSubmit={(value) => renaming && renameEntry(renaming, value)}
+      />
+
+      <PermissionsDialog
+        open={permsEntry !== null}
+        entry={permsEntry}
+        onApply={(mode) => permsEntry && applyPermissions(permsEntry, mode)}
+        onCancel={() => setPermsEntry(null)}
       />
 
       <PromptDialog

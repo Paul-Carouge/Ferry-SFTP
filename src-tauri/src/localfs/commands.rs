@@ -6,6 +6,32 @@ pub fn local_home_dir() -> AppResult<String> {
     super::home_dir()
 }
 
+/// Lists likely private-key files in `~/.ssh` (id_* without a `.pub` suffix),
+/// so the connection dialog can offer them instead of making the user browse.
+#[tauri::command]
+pub fn list_ssh_keys() -> AppResult<Vec<String>> {
+    let Some(home) = dirs::home_dir() else { return Ok(Vec::new()) };
+    let ssh_dir = home.join(".ssh");
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&ssh_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            if name.starts_with("id_") && !name.ends_with(".pub") {
+                out.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// Whether an SSH agent appears to be available (SSH_AUTH_SOCK set).
+#[tauri::command]
+pub fn ssh_agent_available() -> bool {
+    std::env::var_os("SSH_AUTH_SOCK").is_some()
+}
+
 #[tauri::command]
 pub async fn local_list_dir(path: String) -> AppResult<Vec<RemoteEntry>> {
     tauri::async_runtime::spawn_blocking(move || super::list_dir(&path))
@@ -44,6 +70,20 @@ pub async fn local_remove(path: String, is_dir: bool) -> AppResult<()> {
 #[tauri::command]
 pub async fn local_rename(from: String, to: String) -> AppResult<()> {
     tauri::async_runtime::spawn_blocking(move || super::rename(&from, &to))
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn local_chmod(path: String, mode: u32) -> AppResult<()> {
+    tauri::async_runtime::spawn_blocking(move || super::chmod(&path, mode))
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn local_copy(from: String, to: String) -> AppResult<()> {
+    tauri::async_runtime::spawn_blocking(move || super::copy(&from, &to))
         .await
         .map_err(|e| AppError::Other(e.to_string()))?
 }

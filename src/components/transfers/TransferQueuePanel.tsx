@@ -8,6 +8,7 @@ import {
   ChevronUp,
   Pause,
   Play,
+  RotateCw,
   Trash2,
   X,
 } from "lucide-react";
@@ -210,6 +211,11 @@ function TransferRow({ record, t }: { record: TransferRecord; t: TFunction }) {
         {record.state === "paused" && (
           <IconButton title={t("transfers.resume")} onClick={() => transfersApi.resume(record.id)}>
             <Play className="size-3.5" />
+          </IconButton>
+        )}
+        {(record.state === "error" || record.state === "cancelled") && (
+          <IconButton title={t("transfers.retry")} onClick={() => transfersApi.retry(record.id)}>
+            <RotateCw className="size-3.5" />
           </IconButton>
         )}
         {ACTIVE_STATES.has(record.state) && (

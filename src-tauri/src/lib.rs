@@ -13,6 +13,7 @@ use transfers::TransferManager;
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_drag::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
     .manage(SftpManager::default())
@@ -25,12 +26,16 @@ pub fn run() {
       store::commands::get_connection_secret,
       store::commands::touch_connection,
       localfs::commands::local_home_dir,
+      localfs::commands::list_ssh_keys,
+      localfs::commands::ssh_agent_available,
       localfs::commands::local_list_dir,
       localfs::commands::local_search,
       localfs::commands::local_stat,
       localfs::commands::local_mkdir,
       localfs::commands::local_remove,
       localfs::commands::local_rename,
+      localfs::commands::local_chmod,
+      localfs::commands::local_copy,
       localfs::commands::local_read_preview,
       localfs::commands::local_write_file,
       localfs::commands::local_reveal,
@@ -44,6 +49,8 @@ pub fn run() {
       sftp::commands::sftp_mkdir,
       sftp::commands::sftp_remove,
       sftp::commands::sftp_rename,
+      sftp::commands::sftp_copy,
+      sftp::commands::sftp_stage_temp,
       sftp::commands::sftp_chmod,
       sftp::commands::sftp_read_preview,
       sftp::commands::sftp_write_file,
@@ -55,6 +62,7 @@ pub fn run() {
       transfers::commands::transfer_pause,
       transfers::commands::transfer_resume,
       transfers::commands::transfer_cancel,
+      transfers::commands::transfer_retry,
       transfers::commands::transfer_list,
       transfers::commands::transfer_job_list,
       transfers::commands::transfer_cancel_job,

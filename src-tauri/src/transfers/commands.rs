@@ -251,6 +251,11 @@ pub fn transfer_cancel(manager: State<'_, TransferManager>, id: String) -> AppRe
 }
 
 #[tauri::command]
+pub fn transfer_retry(app: tauri::AppHandle, id: String) -> AppResult<()> {
+    super::spawn_retry(app, id)
+}
+
+#[tauri::command]
 pub fn transfer_list(manager: State<'_, TransferManager>) -> Vec<TransferRecord> {
     manager.list()
 }
