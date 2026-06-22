@@ -94,20 +94,6 @@ pub fn touch_last_connected(app: &AppHandle, id: &str, timestamp_ms: i64) -> App
     Ok(profiles)
 }
 
-pub fn set_host_key_fingerprint(
-    app: &AppHandle,
-    id: &str,
-    fingerprint: String,
-) -> AppResult<Vec<ConnectionProfile>> {
-    let mut profiles = load(app)?;
-    if let Some(existing) = profiles.iter_mut().find(|p| p.id == id) {
-        existing.host_key_fingerprint = Some(fingerprint);
-    } else {
-        return Err(AppError::NotFound(format!("connection profile {id}")));
-    }
-    persist(app, &profiles)?;
-    Ok(profiles)
-}
 
 pub fn host_key_fingerprint_for(app: &AppHandle, id: &str) -> Option<String> {
     load(app)
@@ -115,4 +101,38 @@ pub fn host_key_fingerprint_for(app: &AppHandle, id: &str) -> Option<String> {
         .into_iter()
         .find(|p| p.id == id)
         .and_then(|p| p.host_key_fingerprint)
+}
+
+fn known_hosts_path(app: &AppHandle) -> AppResult<std::path::PathBuf> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(e.to_string()))?;
+    fs::create_dir_all(&dir)?;
+    Ok(dir.join("known_hosts.json"))
+}
+
+fn load_known_hosts(app: &AppHandle) -> std::collections::HashMap<String, String> {
+    let Ok(path) = known_hosts_path(app) else {
+        return std::collections::HashMap::new();
+    };
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+/// Trusted host-key fingerprint for a `host:port`, independent of saved
+/// profiles — so ad-hoc (quick) connections are verified too, not just
+/// profile connections.
+pub fn known_host_fingerprint(app: &AppHandle, host_port: &str) -> Option<String> {
+    load_known_hosts(app).remove(host_port)
+}
+
+pub fn set_known_host(app: &AppHandle, host_port: &str, fingerprint: &str) -> AppResult<()> {
+    let mut hosts = load_known_hosts(app);
+    hosts.insert(host_port.to_string(), fingerprint.to_string());
+    let path = known_hosts_path(app)?;
+    fs::write(path, serde_json::to_string_pretty(&hosts)?)?;
+    Ok(())
 }

@@ -1,28 +1,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FolderTree } from "lucide-react";
 import { useConnectionsStore } from "@/lib/stores/connectionsStore";
 import { useTransfersStore } from "@/lib/stores/transfersStore";
 import { useSettingsStore } from "@/lib/stores/settingsStore";
 import { useUpdateStore } from "@/lib/stores/updateStore";
+import { useUiStore } from "@/lib/stores/uiStore";
+import { useEditWatchStore } from "@/lib/stores/editWatchStore";
 import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { SplashScreen } from "@/components/layout/SplashScreen";
 import { ConnectionStatusBar } from "@/components/connection/ConnectionStatusBar";
 import { HostKeyTrustDialog } from "@/components/connection/HostKeyTrustDialog";
-import { EmptyState } from "@/components/common/EmptyState";
+import { ConnectScreen } from "@/components/connection/ConnectScreen";
 import { DualPane } from "@/components/browser/DualPane";
 import { TransferQueuePanel } from "@/components/transfers/TransferQueuePanel";
 import { ToastStack } from "@/components/common/ToastStack";
+import { CommandPalette } from "@/components/common/CommandPalette";
 import { localFsApi } from "@/lib/api";
-import { useT } from "@/lib/i18n/useT";
 
 export function AppShell() {
-  const t = useT();
   const initConnections = useConnectionsStore((s) => s.init);
   const initTransfers = useTransfersStore((s) => s.init);
   const initSettings = useSettingsStore((s) => s.init);
+  const initEditWatch = useEditWatchStore((s) => s.init);
+  const initUi = useUiStore((s) => s.init);
+  const togglePalette = useUiStore((s) => s.togglePalette);
   const checkForUpdateSilently = useUpdateStore((s) => s.checkSilently);
   const activeSessionId = useConnectionsStore((s) => s.activeSessionId);
   const session = useConnectionsStore((s) =>
@@ -35,9 +38,23 @@ export function AppShell() {
     initConnections();
     initTransfers();
     initSettings();
+    initEditWatch();
+    initUi();
     checkForUpdateSilently();
     localFsApi.homeDir().then(setLocalHome).catch(() => {});
-  }, [initConnections, initTransfers, initSettings, checkForUpdateSilently]);
+  }, [initConnections, initTransfers, initSettings, initEditWatch, initUi, checkForUpdateSilently]);
+
+  // Global Cmd/Ctrl+K toggles the command palette.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        togglePalette();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [togglePalette]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -50,16 +67,13 @@ export function AppShell() {
           {session && session.status === "connected" ? (
             <DualPane key={session.id} session={session} localHome={localHome} />
           ) : (
-            <EmptyState
-              icon={<FolderTree className="size-8" />}
-              title={t("emptyState.noConnection")}
-              description={t("emptyState.noConnectionDesc")}
-            />
+            <ConnectScreen />
           )}
         </main>
       </div>
       <TransferQueuePanel />
       <HostKeyTrustDialog />
+      <CommandPalette />
       <ToastStack />
     </div>
   );

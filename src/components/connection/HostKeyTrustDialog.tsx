@@ -5,9 +5,6 @@ import { Button } from "@/components/common/Button";
 import { useConnectionsStore } from "@/lib/stores/connectionsStore";
 import { useT } from "@/lib/i18n/useT";
 
-/** First-time host-key (TOFU) trust prompt, driven by the global
- * `pendingHostKey` store state so both the connection dialog and the sidebar
- * "Connect" action share one flow. */
 export function HostKeyTrustDialog() {
   const t = useT();
   const pending = useConnectionsStore((s) => s.pendingHostKey);
@@ -20,7 +17,7 @@ export function HostKeyTrustDialog() {
     <Modal open onClose={cancel} width="max-w-md">
       <h2 className="text-sm font-semibold text-foreground">{t("hostKey.trustTitle")}</h2>
       <p className="mt-2 text-sm text-foreground-muted">
-        {t("hostKey.trustDesc", { host: pending.profile.host })}
+        {t("hostKey.trustDesc", { host: pending.host })}
       </p>
       <div className="mt-3">
         <span className="text-xs font-medium text-foreground-muted">{t("hostKey.fingerprint")}</span>

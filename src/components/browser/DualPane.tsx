@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Link2, Link2Off } from "lucide-react";
 import { FilePane } from "@/components/browser/FilePane";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { ConflictDialog } from "@/components/transfers/ConflictDialog";
@@ -9,16 +10,17 @@ import { useLocalPaneStore, createPaneStore } from "@/lib/stores/paneStore";
 import {
   localFsApi,
   transfersApi,
+  onTransferUpdate,
   type RemoteEntry,
   type TransferDirection,
   type TransferPlanItem,
 } from "@/lib/api";
-import { joinPath } from "@/lib/path";
+import { joinPath, parentPath } from "@/lib/path";
 import { resolveAndEnqueue, type ConflictChoice } from "@/lib/transferResolve";
 import { useToastStore } from "@/lib/stores/toastStore";
 import type { ConnectionSession } from "@/lib/stores/connectionsStore";
 import { useT } from "@/lib/i18n/useT";
-import { getDragPayloads, setDragPayloads, getLastDragPos } from "@/lib/dragState";
+import { getDragPayloads, setDragPayloads, getLastDragPos, setLastDragPos } from "@/lib/dragState";
 
 export function DualPane({
   session,
@@ -32,6 +34,7 @@ export function DualPane({
     createPaneStore(session.defaultRemotePath || session.homeDir || "/"),
   );
   const [splitPercent, setSplitPercent] = useState(50);
+  const [syncBrowsing, setSyncBrowsing] = useState(false);
   const [preview, setPreview] = useState<{ side: "local" | "remote"; entry: RemoteEntry } | null>(
     null,
   );
@@ -78,18 +81,40 @@ export function DualPane({
   }
 
   // Keep ref current so the dragend fallback handler always calls the latest sendTransfer.
-  sendTransferRef.current = sendTransfer;
-
-  // WKWebView fallback: if the HTML5 `drop` event doesn't fire (known WKWebView issue),
-  // the `dragend` event on the source element is our safety net. We check the last
-  // known cursor position (tracked in dragState during dragover) against pane bounds.
   useEffect(() => {
-    function handleDragEnd() {
+    sendTransferRef.current = sendTransfer;
+  });
+
+  // WKWebView fallback: Tauri's native drag-drop handler (dragDropEnabled, on by
+  // default) swallows the webview's HTML5 `drop`/`dragover` for in-app element
+  // drags, so FilePane.handleDrop never fires. The `dragend` event on the source
+  // element is our reliable path. We can't trust the pane `onDragOver` to fire over
+  // the destination, so we track the cursor continuously via window-level `drag`/
+  // `dragover` (capture) and fall back to the `dragend` event's own coordinates.
+  useEffect(() => {
+    function trackPos(e: globalThis.DragEvent) {
+      if (e.clientX || e.clientY) setLastDragPos(e.clientX, e.clientY);
+    }
+
+    // If the cursor is over a directory row, drop INTO that folder (the HTML5
+    // subfolder drop is also dead in WKWebView), otherwise into the pane's cwd.
+    function directoryPathAt(x: number, y: number): string | null {
+      const el = document.elementFromPoint(x, y);
+      const row = el?.closest?.("[data-dir-path]") as HTMLElement | null;
+      return row?.getAttribute("data-dir-path") ?? null;
+    }
+
+    function handleDragEnd(e: globalThis.DragEvent) {
       const payloads = getDragPayloads();
       if (!payloads) return;
       setDragPayloads(null);
 
-      const { x, y } = getLastDragPos();
+      let { x, y } = getLastDragPos();
+      if (e.clientX || e.clientY) {
+        x = e.clientX;
+        y = e.clientY;
+      }
+
       const localRect = localPaneRef.current?.getBoundingClientRect();
       const remoteRect = remotePaneRef.current?.getBoundingClientRect();
 
@@ -98,26 +123,28 @@ export function DualPane({
       const inRemote =
         remoteRect && x >= remoteRect.left && x <= remoteRect.right && y >= remoteRect.top && y <= remoteRect.bottom;
 
+      const dirUnderCursor = directoryPathAt(x, y);
+
       if (inLocal) {
-        const localCwd = useLocalPaneStore.getState().cwd;
+        const dest = dirUnderCursor ?? useLocalPaneStore.getState().cwd;
         for (const payload of payloads) {
-          if (payload.side !== "remote") continue;
+          if (payload.side !== "remote" || payload.path === dest) continue;
           void sendTransferRef.current(
             "download",
             payload.path,
-            joinPath(localCwd, payload.name),
+            joinPath(dest, payload.name),
             payload.isDir,
             payload.size,
           );
         }
       } else if (inRemote) {
-        const remoteCwd = remoteStore.getState().cwd;
+        const dest = dirUnderCursor ?? remoteStore.getState().cwd;
         for (const payload of payloads) {
-          if (payload.side !== "local") continue;
+          if (payload.side !== "local" || payload.path === dest) continue;
           void sendTransferRef.current(
             "upload",
             payload.path,
-            joinPath(remoteCwd, payload.name),
+            joinPath(dest, payload.name),
             payload.isDir,
             payload.size,
           );
@@ -125,9 +152,51 @@ export function DualPane({
       }
     }
 
+    window.addEventListener("drag", trackPos, true);
+    window.addEventListener("dragover", trackPos, true);
     window.addEventListener("dragend", handleDragEnd);
-    return () => window.removeEventListener("dragend", handleDragEnd);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      window.removeEventListener("drag", trackPos, true);
+      window.removeEventListener("dragover", trackPos, true);
+      window.removeEventListener("dragend", handleDragEnd);
+    };
+  }, [remoteStore]);
+
+  // Auto-refresh the destination pane when a transfer lands in (or under) its cwd.
+  // Folder transfers emit many member records; debounce so we re-list once per burst.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    const timers: { local: ReturnType<typeof setTimeout> | null; remote: ReturnType<typeof setTimeout> | null } = {
+      local: null,
+      remote: null,
+    };
+    const within = (dir: string, cwd: string) =>
+      dir === cwd || dir.startsWith(cwd.endsWith("/") ? cwd : `${cwd}/`);
+    const schedule = (sidePane: "local" | "remote") => {
+      if (timers[sidePane]) return;
+      timers[sidePane] = setTimeout(() => {
+        timers[sidePane] = null;
+        if (sidePane === "local") useLocalPaneStore.getState().bumpRefresh();
+        else remoteStore.getState().bumpRefresh();
+      }, 200);
+    };
+
+    onTransferUpdate((record) => {
+      if (record.state !== "completed") return;
+      if (record.direction === "upload") {
+        if (within(parentPath(record.remotePath), remoteStore.getState().cwd)) schedule("remote");
+      } else if (within(parentPath(record.localPath), useLocalPaneStore.getState().cwd)) {
+        schedule("local");
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+      if (timers.local) clearTimeout(timers.local);
+      if (timers.remote) clearTimeout(timers.remote);
+    };
   }, [remoteStore]);
 
   useEffect(() => {
@@ -158,6 +227,30 @@ export function DualPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remoteStore, session.id, pushToast, t]);
 
+  // Synchronized browsing: mirror a navigation onto the peer pane by the same
+  // relative move (descend into the same subfolder, or pop the same number of levels).
+  // Lateral jumps that can't be mapped are left alone.
+  function mirrorNav(
+    prevCwd: string,
+    nextCwd: string,
+    peer: typeof useLocalPaneStore | typeof remoteStore,
+  ) {
+    if (!syncBrowsing || nextCwd === prevCwd) return;
+    const isInside = (parent: string, child: string) =>
+      child.startsWith(parent === "/" ? "/" : `${parent}/`);
+    const peerCwd = peer.getState().cwd;
+    if (isInside(prevCwd, nextCwd)) {
+      const tail = nextCwd.slice(prevCwd === "/" ? 1 : prevCwd.length + 1);
+      const peerTarget = tail.split("/").filter(Boolean).reduce((acc, seg) => joinPath(acc, seg), peerCwd);
+      peer.getState().requestNavigate(peerTarget);
+    } else if (isInside(nextCwd, prevCwd)) {
+      const ups = prevCwd.slice(nextCwd === "/" ? 1 : nextCwd.length + 1).split("/").filter(Boolean).length;
+      let p = peerCwd;
+      for (let i = 0; i < ups; i++) p = parentPath(p);
+      peer.getState().requestNavigate(p);
+    }
+  }
+
   function onDividerDown() {
     dragging.current = true;
     function onMove(e: MouseEvent) {
@@ -180,30 +273,42 @@ export function DualPane({
       <div ref={localPaneRef} style={{ width: `${splitPercent}%` }} className="flex min-w-0">
         <FilePane
           side="local"
-          transferConnectionId={session.id}
           initialPath={localHome}
           title={t("filePane.thisComputer")}
           store={useLocalPaneStore}
           peerStore={remoteStore}
           onPreview={(entry) => setPreview({ side: "local", entry })}
           onTransfer={sendTransfer}
+          onNavigate={(next, prev) => mirrorNav(prev, next, remoteStore)}
         />
       </div>
       <div
         onMouseDown={onDividerDown}
         className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-accent"
       />
+      <button
+        onClick={() => setSyncBrowsing((v) => !v)}
+        title={syncBrowsing ? t("filePane.syncOn") : t("filePane.syncOff")}
+        style={{ left: `${splitPercent}%` }}
+        className={`absolute top-1 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border px-2 py-0.5 text-xs shadow-sm transition-colors ${
+          syncBrowsing
+            ? "border-accent bg-accent/15 text-accent"
+            : "border-border bg-surface-1 text-foreground-muted hover:text-foreground"
+        }`}
+      >
+        {syncBrowsing ? <Link2 className="size-3" /> : <Link2Off className="size-3" />}
+      </button>
       <div ref={remotePaneRef} style={{ width: `${100 - splitPercent}%` }} className="flex min-w-0">
         <FilePane
           side="remote"
           connectionId={session.id}
-          transferConnectionId={session.id}
           initialPath={session.defaultRemotePath || session.homeDir || "/"}
           title={session.label}
           store={remoteStore}
           peerStore={useLocalPaneStore}
           onPreview={(entry) => setPreview({ side: "remote", entry })}
           onTransfer={sendTransfer}
+          onNavigate={(next, prev) => mirrorNav(prev, next, useLocalPaneStore)}
         />
       </div>
 

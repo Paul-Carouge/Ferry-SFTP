@@ -129,7 +129,9 @@ export function ConnectionDialog({
           keyPath: form.authMethod === "key" ? form.keyPath : undefined,
           passphrase: form.authMethod === "key" ? form.passphrase : undefined,
         });
-        onConnected?.(sessionId);
+        // null => a first-time host-key trust prompt is now showing; the dialog
+        // closes and that flow finishes the connect.
+        if (sessionId) onConnected?.(sessionId);
       }
       onClose();
     } catch (err) {

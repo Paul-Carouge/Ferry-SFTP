@@ -113,6 +113,9 @@ export const localFsApi = {
   },
   writeFile: (path: string, content: number[]) =>
     invoke<void>("local_write_file", { path, content }),
+  reveal: (path: string) => invoke<void>("local_reveal", { path }),
+  openTerminal: (path: string) => invoke<void>("local_open_terminal", { path }),
+  open: (path: string) => invoke<void>("local_open", { path }),
 };
 
 // --- SFTP session + filesystem ---
@@ -185,6 +188,33 @@ export const transfersApi = {
   jobList: () => invoke<TransferJob[]>("transfer_job_list"),
   cancelJob: (jobId: string) => invoke<void>("transfer_cancel_job", { jobId }),
 };
+
+// --- External edit (edit-in-app with live re-upload) ---
+
+export interface EditSession {
+  id: string;
+  name: string;
+  remotePath: string;
+}
+
+export interface EditSyncEvent {
+  id: string;
+  name: string;
+  remotePath: string;
+  ok: boolean;
+  error: string | null;
+  at: number;
+}
+
+export const editApi = {
+  start: (connectionId: string, remotePath: string) =>
+    invoke<EditSession>("external_edit_start", { connectionId, remotePath }),
+  stop: (id: string) => invoke<void>("external_edit_stop", { id }),
+};
+
+export function onExternalEditSync(callback: (event: EditSyncEvent) => void) {
+  return listen<EditSyncEvent>("external-edit:sync", (event) => callback(event.payload));
+}
 
 // --- Events ---
 

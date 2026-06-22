@@ -1,5 +1,10 @@
 "use client";
 
+/* This pane loads directory listings from effects (mount, refresh nonce, synchronized
+   browsing), which legitimately set loading/entries state. The async loaders trip
+   react-hooks/set-state-in-effect through their call chain, so it's disabled file-wide. */
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
 import { open as openDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
@@ -13,6 +18,7 @@ import { localFsApi, sftpApi, type RemoteEntry, type TransferDirection } from "@
 import { joinPath, parentPath } from "@/lib/path";
 import { useToastStore } from "@/lib/stores/toastStore";
 import { useSettingsStore } from "@/lib/stores/settingsStore";
+import { useEditWatchStore } from "@/lib/stores/editWatchStore";
 import { useStaggerOnChange } from "@/lib/animations";
 import { useT } from "@/lib/i18n/useT";
 import type { PaneEntry } from "@/lib/stores/paneStore";
@@ -32,11 +38,16 @@ interface PaneStoreState {
   error: string | null;
   selected: Set<string>;
   filter: string;
+  refreshNonce: number;
+  requestedPath: string | null;
+  requestNavigate: (path: string) => void;
+  clearRequestedPath: () => void;
   setCwd: (cwd: string) => void;
   setEntries: (entries: PaneEntry[]) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   toggleSelected: (path: string, exclusive?: boolean) => void;
+  setSelection: (paths: string[]) => void;
   clearSelection: () => void;
   setFilter: (filter: string) => void;
 }
@@ -44,18 +55,16 @@ interface PaneStoreState {
 export function FilePane({
   side,
   connectionId,
-  transferConnectionId,
   initialPath,
   title,
   store,
   peerStore,
   onPreview,
   onTransfer,
+  onNavigate,
 }: {
   side: "local" | "remote";
   connectionId?: string;
-  /** Connection id to use for transfers, always defined regardless of which side this pane is. */
-  transferConnectionId?: string;
   initialPath: string;
   title: string;
   store: UseBoundStore<StoreApi<PaneStoreState>>;
@@ -70,6 +79,8 @@ export function FilePane({
     isDir: boolean,
     size: number,
   ) => Promise<void>;
+  /** Fired when the user navigates this pane (not on programmatic/mirror reloads), enabling synchronized browsing. */
+  onNavigate?: (nextCwd: string, prevCwd: string) => void;
 }) {
   const {
     cwd,
@@ -78,11 +89,15 @@ export function FilePane({
     error,
     selected,
     filter,
+    refreshNonce,
+    requestedPath,
+    clearRequestedPath,
     setCwd,
     setEntries,
     setLoading,
     setError,
     toggleSelected,
+    setSelection,
     clearSelection,
     setFilter,
   } = store();
@@ -90,6 +105,9 @@ export function FilePane({
   const t = useT();
   const pushToast = useToastStore((s) => s.push);
   const showHiddenFiles = useSettingsStore((s) => s.showHiddenFiles);
+  const startEdit = useEditWatchStore((s) => s.start);
+  const stopEdit = useEditWatchStore((s) => s.stop);
+  const editWatches = useEditWatchStore((s) => s.watches);
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; entry?: RemoteEntry; batch?: RemoteEntry[] } | null>(null);
   const [deleting, setDeleting] = useState<RemoteEntry | null>(null);
@@ -102,6 +120,9 @@ export function FilePane({
   const [searching, setSearching] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "size" | "modified">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [activePath, setActivePath] = useState<string | null>(null);
+  const [editingPath, setEditingPath] = useState(false);
+  const [pathDraft, setPathDraft] = useState("");
 
   useStaggerOnChange(listRef, [entries, filter]);
 
@@ -109,7 +130,6 @@ export function FilePane({
     const query = filter.trim();
     if (!query) {
       // Resetting search state when the query is cleared, not syncing from an external source.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSearchResults(null);
       setSearching(false);
       return;
@@ -133,7 +153,9 @@ export function FilePane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, cwd, side, connectionId]);
 
-  async function load(path: string) {
+  /** Lists `path`. `mirror` reloads (mount, refresh, synchronized-browsing echoes) don't re-emit onNavigate. */
+  async function loadInternal(path: string, mirror: boolean) {
+    const prev = cwd;
     setLoading(true);
     setError(null);
     try {
@@ -141,6 +163,8 @@ export function FilePane({
       setEntries(list);
       setCwd(path);
       clearSelection();
+      setActivePath(null);
+      if (!mirror && path !== prev) onNavigate?.(path, prev);
     } catch (err) {
       setError(String(err));
       pushToast(t("toast.couldntOpen", { path }), "error");
@@ -149,10 +173,36 @@ export function FilePane({
     }
   }
 
+  /** User-initiated navigation (emits onNavigate for synchronized browsing). */
+  function load(path: string) {
+    return loadInternal(path, false);
+  }
+
+  /** Re-list the current directory without emitting a navigation. */
+  function reload() {
+    return loadInternal(cwd, true);
+  }
+
   useEffect(() => {
-    load(initialPath);
+    loadInternal(initialPath, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-list the current directory when something (e.g. a finished transfer) bumps the nonce.
+  useEffect(() => {
+    if (refreshNonce === 0) return;
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshNonce]);
+
+  // Synchronized browsing: the peer pane asks us to navigate without echoing back.
+  useEffect(() => {
+    if (!requestedPath) return;
+    const target = requestedPath;
+    clearRequestedPath();
+    if (target !== cwd) loadInternal(target, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedPath]);
 
   function navigate(entry: RemoteEntry) {
     if (entry.isDir) {
@@ -169,7 +219,7 @@ export function FilePane({
     try {
       if (side === "local") await localFsApi.mkdir(path);
       else await sftpApi.mkdir(connectionId!, path);
-      load(cwd);
+      reload();
     } catch (err) {
       pushToast(t("toast.couldntCreateFolder", { error: String(err) }), "error");
     }
@@ -181,7 +231,7 @@ export function FilePane({
     try {
       if (side === "local") await localFsApi.rename(entry.path, newPath);
       else await sftpApi.rename(connectionId!, entry.path, newPath);
-      load(cwd);
+      reload();
     } catch (err) {
       pushToast(t("toast.couldntRename", { error: String(err) }), "error");
     }
@@ -192,7 +242,7 @@ export function FilePane({
     try {
       if (side === "local") await localFsApi.remove(entry.path, entry.isDir);
       else await sftpApi.remove(connectionId!, entry.path, entry.isDir);
-      load(cwd);
+      reload();
     } catch (err) {
       pushToast(t("toast.couldntDelete", { error: String(err) }), "error");
     }
@@ -212,7 +262,7 @@ export function FilePane({
       pushToast(t("toast.batchDeletePartialFail", { failed, total: items.length }), "error");
     }
     clearSelection();
-    load(cwd);
+    reload();
   }
 
   async function sendBatchToOtherSide(items: RemoteEntry[]) {
@@ -358,50 +408,155 @@ export function FilePane({
     return sortDir === "asc" ? cmp : -cmp;
   });
 
+  function scrollRowIntoView(path: string) {
+    requestAnimationFrame(() => {
+      listRef.current?.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: "nearest" });
+    });
+  }
+
+  /** Move the keyboard cursor by `delta` rows; `extend` grows the selection instead of replacing it. */
+  function moveActive(delta: number, extend: boolean) {
+    if (sorted.length === 0) return;
+    const curIdx = activePath ? sorted.findIndex((en) => en.path === activePath) : -1;
+    const nextIdx =
+      curIdx === -1 ? (delta > 0 ? 0 : sorted.length - 1) : Math.max(0, Math.min(sorted.length - 1, curIdx + delta));
+    const target = sorted[nextIdx];
+    setActivePath(target.path);
+    if (extend) {
+      const next = new Set(selected);
+      if (activePath) next.add(activePath);
+      next.add(target.path);
+      setSelection([...next]);
+    } else {
+      toggleSelected(target.path, true);
+    }
+    scrollRowIntoView(target.path);
+  }
+
+  function jumpActive(toEnd: boolean) {
+    if (sorted.length === 0) return;
+    const target = toEnd ? sorted[sorted.length - 1] : sorted[0];
+    setActivePath(target.path);
+    toggleSelected(target.path, true);
+    scrollRowIntoView(target.path);
+  }
+
+  function goUp() {
+    const parent = parentPath(cwd);
+    if (parent !== cwd) load(parent);
+  }
+
+  function openPathBar() {
+    setPathDraft(cwd);
+    setEditingPath(true);
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     const target = e.target as HTMLElement;
     if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
 
     const sel = sorted.filter((en) => selected.has(en.path));
+    const active = activePath ? sorted.find((en) => en.path === activePath) : undefined;
+    const focused = active ?? (sel.length === 1 ? sel[0] : undefined);
+    const mod = e.metaKey || e.ctrlKey;
 
-    if (e.key === "F2" && sel.length === 1) {
+    if (mod && e.key.toLowerCase() === "l") {
       e.preventDefault();
-      setRenaming(sel[0]);
-    } else if ((e.key === "Delete" || (e.key === "Backspace" && sel.length > 0))) {
+      openPathBar();
+    } else if (mod && e.key.toLowerCase() === "r") {
       e.preventDefault();
-      if (sel.length === 1) setDeleting(sel[0]);
-      else if (sel.length > 1) setDeletingBatch(sel);
-    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+      reload();
+    } else if (mod && e.key.toLowerCase() === "a") {
       e.preventDefault();
-      sorted.forEach((en) => {
-        if (!selected.has(en.path)) toggleSelected(en.path, false);
-      });
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      clearSelection();
-    } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") {
+      setSelection(sorted.map((en) => en.path));
+    } else if (mod && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       setCreatingFolder(true);
-    } else if (e.key === "Enter" && sel.length === 1) {
+    } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      navigate(sel[0]);
-    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
+      moveActive(1, e.shiftKey);
+    } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      load(cwd);
+      moveActive(-1, e.shiftKey);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      jumpActive(false);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      jumpActive(true);
+    } else if (e.key === "Enter" || e.key === "ArrowRight") {
+      if (!focused) return;
+      e.preventDefault();
+      navigate(focused);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      goUp();
+    } else if (e.key === " ") {
+      if (!focused) return;
+      e.preventDefault();
+      if (!focused.isDir) onPreview(focused);
+    } else if (e.key === "F2" && focused) {
+      e.preventDefault();
+      setRenaming(focused);
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      if (sel.length > 1) setDeletingBatch(sel);
+      else if (sel.length === 1) setDeleting(sel[0]);
+      else if (e.key === "Backspace") goUp();
+      else if (focused) setDeleting(focused);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setActivePath(null);
+      clearSelection();
+    }
+  }
+
+  async function copyText(text: string, toastKey: "filePane.copiedPath" | "filePane.copiedName") {
+    try {
+      await navigator.clipboard.writeText(text);
+      pushToast(t(toastKey), "success");
+    } catch (err) {
+      pushToast(String(err), "error");
+    }
+  }
+
+  async function nativeAction(fn: () => Promise<void>) {
+    try {
+      await fn();
+    } catch (err) {
+      pushToast(String(err), "error");
     }
   }
 
   function rowMenuItems(entry: RemoteEntry): ContextMenuItem[] {
-    return [
+    const items: ContextMenuItem[] = [
       { label: entry.isDir ? t("filePane.open") : t("filePane.preview"), onClick: () => navigate(entry) },
       {
         label: side === "local" ? t("filePane.uploadToRemote") : t("filePane.downloadToLocal"),
         onClick: () => sendToOtherSide(entry),
         separatorBefore: true,
       },
-      { label: t("filePane.rename"), onClick: () => setRenaming(entry) },
-      { label: t("filePane.delete"), onClick: () => setDeleting(entry), danger: true },
+      { label: t("filePane.copyPath"), onClick: () => void copyText(entry.path, "filePane.copiedPath") },
+      { label: t("filePane.copyName"), onClick: () => void copyText(entry.name, "filePane.copiedName") },
     ];
+    if (side === "local") {
+      items.push(
+        { label: t("filePane.openWithDefault"), onClick: () => void nativeAction(() => localFsApi.open(entry.path)) },
+        { label: t("filePane.revealInFinder"), onClick: () => void nativeAction(() => localFsApi.reveal(entry.path)) },
+      );
+    } else if (!entry.isDir && connectionId) {
+      const watched = `${connectionId}:${entry.path}` in editWatches;
+      items.push(
+        watched
+          ? { label: t("filePane.stopEditing"), onClick: () => void stopEdit(connectionId, entry.path) }
+          : { label: t("filePane.editExternal"), onClick: () => void startEdit(connectionId, entry.path) },
+      );
+    }
+    items.push(
+      { label: t("filePane.rename"), onClick: () => setRenaming(entry), separatorBefore: true },
+      { label: t("filePane.delete"), onClick: () => setDeleting(entry), danger: true },
+    );
+    return items;
   }
 
   function batchMenuItems(items: RemoteEntry[]): ContextMenuItem[] {
@@ -437,10 +592,19 @@ export function FilePane({
   }
 
   function paneMenuItems(): ContextMenuItem[] {
-    return [
+    const items: ContextMenuItem[] = [
       { label: t("filePane.newFolder"), onClick: () => setCreatingFolder(true) },
-      { label: t("filePane.refresh"), onClick: () => load(cwd) },
+      { label: t("filePane.goToPath"), onClick: () => openPathBar() },
+      { label: t("filePane.copyPath"), onClick: () => void copyText(cwd, "filePane.copiedPath") },
+      { label: t("filePane.refresh"), onClick: () => reload() },
     ];
+    if (side === "local") {
+      items.push(
+        { label: t("filePane.revealInFinder"), onClick: () => void nativeAction(() => localFsApi.reveal(cwd)), separatorBefore: true },
+        { label: t("filePane.openTerminalHere"), onClick: () => void nativeAction(() => localFsApi.openTerminal(cwd)) },
+      );
+    }
+    return items;
   }
 
   return (
@@ -476,7 +640,7 @@ export function FilePane({
             <FolderPlus className="size-3.5" />
           </button>
           <button
-            onClick={() => load(cwd)}
+            onClick={() => reload()}
             className="rounded-md p-1 text-foreground-muted hover:bg-surface-2 hover:text-foreground"
             title={t("filePane.refresh")}
           >
@@ -486,7 +650,31 @@ export function FilePane({
       </div>
 
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-        <Breadcrumbs path={cwd} onNavigate={load} />
+        {editingPath ? (
+          <input
+            autoFocus
+            value={pathDraft}
+            onChange={(e) => setPathDraft(e.target.value)}
+            onBlur={() => setEditingPath(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const next = pathDraft.trim();
+                setEditingPath(false);
+                if (next && next !== cwd) load(next);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setEditingPath(false);
+              }
+            }}
+            placeholder={t("filePane.goToPathPlaceholder")}
+            className="w-full rounded-md border border-accent/50 bg-surface-2 px-2 py-1 font-mono text-sm text-foreground outline-none"
+          />
+        ) : (
+          <div onDoubleClick={openPathBar} title={t("filePane.goToPath")} className="min-w-0 flex-1">
+            <Breadcrumbs path={cwd} onNavigate={load} />
+          </div>
+        )}
       </div>
 
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
@@ -553,9 +741,13 @@ export function FilePane({
                 key={entry.path}
                 entry={entry}
                 selected={selected.has(entry.path)}
+                isActive={activePath === entry.path}
                 subPath={subPath}
                 isDropTarget={dropTarget === entry.path}
-                onClick={(e) => toggleSelected(entry.path, !(e.metaKey || e.ctrlKey))}
+                onClick={(e) => {
+                  setActivePath(entry.path);
+                  toggleSelected(entry.path, !(e.metaKey || e.ctrlKey));
+                }}
                 onDoubleClick={() => navigate(entry)}
                 onContextMenu={(e) => openRowMenu(e, entry)}
                 onDragStart={(e) => handleDragStart(e, entry)}

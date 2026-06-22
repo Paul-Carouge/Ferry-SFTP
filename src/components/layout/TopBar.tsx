@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Copy, Minus, Plus, Settings, Square, X } from "lucide-react";
 import { useConnectionsStore } from "@/lib/stores/connectionsStore";
+import { useUiStore } from "@/lib/stores/uiStore";
 import { ConnectionDialog } from "@/components/connection/ConnectionDialog";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
@@ -22,8 +23,10 @@ export function TopBar() {
   const activeSessionId = useConnectionsStore((s) => s.activeSessionId);
   const setActiveSession = useConnectionsStore((s) => s.setActiveSession);
   const disconnectSession = useConnectionsStore((s) => s.disconnectSession);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const dialogOpen = useUiStore((s) => s.newConnectionOpen);
+  const setDialogOpen = useUiStore((s) => s.setNewConnectionOpen);
+  const settingsOpen = useUiStore((s) => s.settingsOpen);
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {

@@ -61,8 +61,6 @@ const en = {
   "hostKey.mismatchTitle": "Host key changed — possible attack",
   "hostKey.mismatchDesc": "The server's key doesn't match the one previously trusted. Someone may be impersonating it. Connection blocked.",
 
-  "emptyState.noConnection": "No active connection",
-  "emptyState.noConnectionDesc": "Connect to a server from the sidebar to start browsing files.",
 
   "filePane.thisComputer": "This computer",
   "filePane.newFolder": "New folder",
@@ -142,6 +140,47 @@ const en = {
   "update.installing": "Installing…",
   "update.checkNow": "Check for updates",
   "update.upToDate": "You're up to date",
+
+  "filePane.goToPath": "Go to path…",
+  "filePane.goToPathPlaceholder": "Type or paste a path, then Enter",
+  "filePane.copyPath": "Copy path",
+  "filePane.copyName": "Copy name",
+  "filePane.openWithDefault": "Open with default app",
+  "filePane.revealInFinder": "Reveal in file manager",
+  "filePane.openTerminalHere": "Open terminal here",
+  "filePane.copiedPath": "Path copied",
+  "filePane.copiedName": "Name copied",
+  "filePane.syncBrowsing": "Synchronized browsing",
+  "filePane.syncOn": "Sync browsing: on",
+  "filePane.syncOff": "Sync browsing: off",
+
+  "palette.placeholder": "Type a command or connection…",
+  "palette.empty": "No matching commands",
+  "palette.sectionConnections": "Connect",
+  "palette.sectionSessions": "Switch session",
+  "palette.sectionActions": "Actions",
+  "palette.connectTo": "Connect: {{name}}",
+  "palette.switchTo": "Switch to {{name}}",
+  "palette.disconnect": "Disconnect current session",
+  "palette.toggleTheme": "Toggle light/dark theme",
+  "palette.toggleHidden": "Toggle hidden files",
+  "palette.toggleToasts": "Toggle transfer notifications",
+  "palette.openSettings": "Open settings",
+  "palette.newConnection": "New connection",
+  "palette.checkUpdates": "Check for updates",
+
+  "connectScreen.tagline": "Connect to a server to start browsing files.",
+  "connectScreen.paletteHint": "for quick actions",
+  "connectScreen.lastConnected": "Last connected {{when}}",
+  "connectScreen.neverConnected": "Never connected",
+
+  "filePane.editExternal": "Edit in external app",
+  "filePane.stopEditing": "Stop editing (live sync)",
+  "toast.editOpened": "Editing {{name}} — saves sync automatically",
+  "toast.editSynced": "Synced {{name}} to server",
+  "toast.editSyncFailed": "Couldn't sync {{name}}: {{error}}",
+  "toast.editStopped": "Stopped syncing {{name}}",
+  "toast.editFailed": "Couldn't open for editing: {{error}}",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -209,8 +248,6 @@ const fr: Record<TranslationKey, string> = {
   "hostKey.mismatchTitle": "Clé du serveur modifiée — attaque possible",
   "hostKey.mismatchDesc": "La clé du serveur ne correspond pas à celle approuvée précédemment. Quelqu'un l'usurpe peut-être. Connexion bloquée.",
 
-  "emptyState.noConnection": "Aucune connexion active",
-  "emptyState.noConnectionDesc": "Connectez-vous à un serveur depuis la barre latérale pour parcourir des fichiers.",
 
   "filePane.thisComputer": "Cet ordinateur",
   "filePane.newFolder": "Nouveau dossier",
@@ -290,6 +327,47 @@ const fr: Record<TranslationKey, string> = {
   "update.installing": "Installation…",
   "update.checkNow": "Vérifier les mises à jour",
   "update.upToDate": "Vous êtes à jour",
+
+  "filePane.goToPath": "Aller au chemin…",
+  "filePane.goToPathPlaceholder": "Saisissez ou collez un chemin, puis Entrée",
+  "filePane.copyPath": "Copier le chemin",
+  "filePane.copyName": "Copier le nom",
+  "filePane.openWithDefault": "Ouvrir avec l'app par défaut",
+  "filePane.revealInFinder": "Afficher dans le gestionnaire de fichiers",
+  "filePane.openTerminalHere": "Ouvrir un terminal ici",
+  "filePane.copiedPath": "Chemin copié",
+  "filePane.copiedName": "Nom copié",
+  "filePane.syncBrowsing": "Navigation synchronisée",
+  "filePane.syncOn": "Navigation synchronisée : activée",
+  "filePane.syncOff": "Navigation synchronisée : désactivée",
+
+  "palette.placeholder": "Tapez une commande ou une connexion…",
+  "palette.empty": "Aucune commande correspondante",
+  "palette.sectionConnections": "Se connecter",
+  "palette.sectionSessions": "Changer de session",
+  "palette.sectionActions": "Actions",
+  "palette.connectTo": "Connexion : {{name}}",
+  "palette.switchTo": "Aller à {{name}}",
+  "palette.disconnect": "Déconnecter la session active",
+  "palette.toggleTheme": "Basculer le thème clair/sombre",
+  "palette.toggleHidden": "Afficher/masquer les fichiers cachés",
+  "palette.toggleToasts": "Activer/désactiver les notifications de transfert",
+  "palette.openSettings": "Ouvrir les paramètres",
+  "palette.newConnection": "Nouvelle connexion",
+  "palette.checkUpdates": "Vérifier les mises à jour",
+
+  "connectScreen.tagline": "Connectez-vous à un serveur pour parcourir vos fichiers.",
+  "connectScreen.paletteHint": "pour les actions rapides",
+  "connectScreen.lastConnected": "Dernière connexion {{when}}",
+  "connectScreen.neverConnected": "Jamais connecté",
+
+  "filePane.editExternal": "Éditer dans une app externe",
+  "filePane.stopEditing": "Arrêter l'édition (sync auto)",
+  "toast.editOpened": "Édition de {{name}} — les enregistrements se synchronisent",
+  "toast.editSynced": "{{name}} synchronisé vers le serveur",
+  "toast.editSyncFailed": "Échec de synchro de {{name}} : {{error}}",
+  "toast.editStopped": "Arrêt de la synchro de {{name}}",
+  "toast.editFailed": "Ouverture pour édition impossible : {{error}}",
 };
 
 export const translations = { en, fr } satisfies Record<string, Record<TranslationKey, string>>;

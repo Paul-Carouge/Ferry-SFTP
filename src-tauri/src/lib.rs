@@ -1,9 +1,11 @@
+mod edit;
 mod error;
 mod localfs;
 mod sftp;
 mod store;
 mod transfers;
 
+use edit::EditManager;
 use sftp::manager::SftpManager;
 use transfers::TransferManager;
 
@@ -15,6 +17,7 @@ pub fn run() {
     .plugin(tauri_plugin_process::init())
     .manage(SftpManager::default())
     .manage(TransferManager::default())
+    .manage(EditManager::default())
     .invoke_handler(tauri::generate_handler![
       store::commands::list_connections,
       store::commands::save_connection,
@@ -30,6 +33,9 @@ pub fn run() {
       localfs::commands::local_rename,
       localfs::commands::local_read_preview,
       localfs::commands::local_write_file,
+      localfs::commands::local_reveal,
+      localfs::commands::local_open_terminal,
+      localfs::commands::local_open,
       sftp::commands::sftp_connect,
       sftp::commands::sftp_disconnect,
       sftp::commands::sftp_list_dir,
@@ -52,6 +58,8 @@ pub fn run() {
       transfers::commands::transfer_list,
       transfers::commands::transfer_job_list,
       transfers::commands::transfer_cancel_job,
+      edit::external_edit_start,
+      edit::external_edit_stop,
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

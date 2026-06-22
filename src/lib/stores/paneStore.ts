@@ -11,11 +11,19 @@ interface PaneState {
   selected: Set<string>;
   filter: string;
   history: string[];
+  /** Bumped to ask the pane to re-list its current directory (e.g. after a transfer lands in it). */
+  refreshNonce: number;
+  bumpRefresh: () => void;
+  /** A directory the pane is asked to navigate to without emitting an onNavigate echo (synchronized browsing). */
+  requestedPath: string | null;
+  requestNavigate: (path: string) => void;
+  clearRequestedPath: () => void;
   setCwd: (cwd: string) => void;
   setEntries: (entries: PaneEntry[]) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   toggleSelected: (path: string, exclusive?: boolean) => void;
+  setSelection: (paths: string[]) => void;
   clearSelection: () => void;
   setFilter: (filter: string) => void;
   pushHistory: (cwd: string) => void;
@@ -31,6 +39,11 @@ export function createPaneStore(initialCwd: string) {
     selected: new Set(),
     filter: "",
     history: [],
+    refreshNonce: 0,
+    bumpRefresh: () => set((state) => ({ refreshNonce: state.refreshNonce + 1 })),
+    requestedPath: null,
+    requestNavigate: (path) => set({ requestedPath: path }),
+    clearRequestedPath: () => set({ requestedPath: null }),
     setCwd: (cwd) => set({ cwd }),
     setEntries: (entries) => set({ entries }),
     setLoading: (loading) => set({ loading }),
@@ -43,6 +56,7 @@ export function createPaneStore(initialCwd: string) {
         else next.add(path);
         return { selected: next };
       }),
+    setSelection: (paths) => set({ selected: new Set(paths) }),
     clearSelection: () => set({ selected: new Set() }),
     setFilter: (filter) => set({ filter }),
     pushHistory: (cwd) => set((state) => ({ history: [...state.history, cwd] })),

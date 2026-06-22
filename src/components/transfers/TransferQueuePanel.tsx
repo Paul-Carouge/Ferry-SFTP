@@ -153,14 +153,15 @@ function TransferRow({ record, t }: { record: TransferRecord; t: TFunction }) {
   const name = baseName(record.direction === "upload" ? record.remotePath : record.localPath);
   const percent = record.totalBytes > 0 ? Math.min(100, (record.bytesTransferred / record.totalBytes) * 100) : 0;
   const remaining = Math.max(0, record.totalBytes - record.bytesTransferred);
-  const speedHistory = useRef<number[]>([]);
+  const [speedHistory, setSpeedHistory] = useState<number[]>([]);
 
-  if (record.state === "running" && record.speedBps > 0) {
-    const h = speedHistory.current;
-    if (h.length === 0 || h[h.length - 1] !== record.speedBps) {
-      speedHistory.current = [...h, record.speedBps].slice(-24);
-    }
-  }
+  useEffect(() => {
+    if (record.state !== "running" || record.speedBps <= 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSpeedHistory((h) =>
+      h.length > 0 && h[h.length - 1] === record.speedBps ? h : [...h, record.speedBps].slice(-24),
+    );
+  }, [record.state, record.speedBps]);
 
   return (
     <div className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-b-0">
@@ -186,7 +187,7 @@ function TransferRow({ record, t }: { record: TransferRecord; t: TFunction }) {
           <span className="flex items-center gap-2">
             {record.state === "running" && (
               <>
-                <SpeedSparkline history={speedHistory.current} />
+                <SpeedSparkline history={speedHistory} />
                 {formatSpeed(record.speedBps)}
               </>
             )}

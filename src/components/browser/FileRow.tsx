@@ -6,6 +6,7 @@ import type { RemoteEntry } from "@/lib/api";
 export function FileRow({
   entry,
   selected,
+  isActive,
   subPath,
   isDropTarget,
   onClick,
@@ -18,6 +19,7 @@ export function FileRow({
 }: {
   entry: RemoteEntry;
   selected: boolean;
+  isActive?: boolean;
   subPath?: string;
   isDropTarget?: boolean;
   onClick: (e: MouseEvent) => void;
@@ -31,6 +33,8 @@ export function FileRow({
   return (
     <div
       draggable
+      data-path={entry.path}
+      data-dir-path={entry.isDir ? entry.path : undefined}
       onDragStart={onDragStart}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
@@ -44,7 +48,7 @@ export function FileRow({
           : selected
           ? "bg-accent/15 text-foreground"
           : "text-foreground hover:bg-surface-2"
-      }`}
+      } ${isActive ? "ring-1 ring-inset ring-accent/50" : ""}`}
     >
       <span className="flex items-center gap-2 truncate">
         <FileIcon name={entry.name} isDir={entry.isDir} isSymlink={entry.isSymlink} />

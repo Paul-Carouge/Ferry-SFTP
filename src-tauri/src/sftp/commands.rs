@@ -103,14 +103,18 @@ pub async fn sftp_connect(
     let host = input.host;
     let host_for_error = host.clone();
     let port = input.port;
+    let host_port = format!("{host}:{port}");
     let username = input.username;
-    // Only saved profiles carry a trust anchor; quick connects skip TOFU.
-    let stored_fingerprint = input
-        .profile_id
-        .as_ref()
-        .and_then(|id| store::host_key_fingerprint_for(&app, id));
+    // Trust anchor is keyed by host:port (known-hosts), so every connection is
+    // verified — including ad-hoc quick connects. Saved-profile fingerprints
+    // from older versions are honoured as a fallback anchor.
+    let stored_fingerprint = store::known_host_fingerprint(&app, &host_port).or_else(|| {
+        input
+            .profile_id
+            .as_ref()
+            .and_then(|id| store::host_key_fingerprint_for(&app, id))
+    });
     let trust_requested = input.trust_host_key.unwrap_or(false);
-    let has_profile = input.profile_id.is_some();
 
     let result = tauri::async_runtime::spawn_blocking(move || -> AppResult<HandshakeOutcome> {
         let session = SftpConnection::handshake_only(&host, port)?;
@@ -124,21 +128,17 @@ pub async fn sftp_connect(
                     actual: fingerprint,
                 });
             }
-            // No stored fingerprint, on a saved profile, not yet trusted:
-            // ask the user before sending credentials.
-            None if has_profile && !trust_requested => {
+            // First time seeing this host and not yet trusted: ask the user
+            // before sending any credentials.
+            None if !trust_requested => {
                 return Ok(HandshakeOutcome::Prompt(fingerprint));
             }
             _ => {}
         }
 
         let conn = SftpConnection::finish_connect(session, &username, auth)?;
-        // Persist the fingerprint only on a first-time trust acceptance.
-        let to_store = if has_profile && stored_fingerprint.is_none() {
-            Some(fingerprint)
-        } else {
-            None
-        };
+        // Persist on first-time trust so subsequent connects verify silently.
+        let to_store = stored_fingerprint.is_none().then_some(fingerprint);
         Ok(HandshakeOutcome::Connected(conn, to_store))
     })
     .await
@@ -148,8 +148,8 @@ pub async fn sftp_connect(
         Ok(HandshakeOutcome::Connected(conn, to_store)) => {
             let home_dir = conn.home_dir().to_string();
             manager.insert(connection_id.clone(), conn);
-            if let (Some(fingerprint), Some(id)) = (to_store, input.profile_id.as_ref()) {
-                let _ = store::set_host_key_fingerprint(&app, id, fingerprint);
+            if let Some(fingerprint) = to_store {
+                let _ = store::set_known_host(&app, &host_port, &fingerprint);
             }
             emit_status(&app, &connection_id, "connected", None);
             Ok(ConnectOutcome::Connected {
@@ -183,8 +183,12 @@ pub async fn sftp_connect(
 pub fn sftp_disconnect(
     app: AppHandle,
     manager: State<'_, SftpManager>,
+    edits: State<'_, crate::edit::EditManager>,
     connection_id: String,
 ) -> AppResult<()> {
+    // Tear down any external-edit watchers first so their threads don't keep
+    // trying to upload through a session we're about to drop.
+    edits.stop_for_connection(&connection_id);
     if let Some(conn) = manager.remove(&connection_id) {
         conn.disconnect();
     }

@@ -58,7 +58,71 @@ pub async fn local_read_preview(path: String) -> AppResult<Vec<u8>> {
 }
 
 #[tauri::command]
-pub fn local_write_file(path: String, content: Vec<u8>) -> AppResult<()> {
-    std::fs::write(&path, &content)?;
-    Ok(())
+pub async fn local_write_file(path: String, content: Vec<u8>) -> AppResult<()> {
+    tauri::async_runtime::spawn_blocking(move || std::fs::write(&path, &content).map_err(Into::into))
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+}
+
+/// Reveal a path in the OS file manager (Finder/Explorer/file manager), selecting it.
+#[tauri::command]
+pub fn local_reveal(path: String) -> AppResult<()> {
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("explorer")
+        .arg(format!("/select,{path}"))
+        .spawn();
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = {
+        // No portable "select" on Linux; open the containing directory.
+        let dir = std::path::Path::new(&path)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from(&path));
+        std::process::Command::new("xdg-open").arg(dir).spawn()
+    };
+
+    result.map(|_| ()).map_err(|e| AppError::Other(e.to_string()))
+}
+
+/// Open a system terminal at the given directory.
+#[tauri::command]
+pub fn local_open_terminal(path: String) -> AppResult<()> {
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open")
+        .arg("-a")
+        .arg("Terminal")
+        .arg(&path)
+        .spawn();
+
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("cmd")
+        .args(["/C", "start", "cmd", "/K", "cd", "/D"])
+        .arg(&path)
+        .spawn();
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = std::process::Command::new("x-terminal-emulator")
+        .current_dir(&path)
+        .spawn();
+
+    result.map(|_| ()).map_err(|e| AppError::Other(e.to_string()))
+}
+
+/// Open a path with the OS default application.
+#[tauri::command]
+pub fn local_open(path: String) -> AppResult<()> {
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(&path).spawn();
+
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("cmd").args(["/C", "start", ""]).arg(&path).spawn();
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = std::process::Command::new("xdg-open").arg(&path).spawn();
+
+    result.map(|_| ()).map_err(|e| AppError::Other(e.to_string()))
 }

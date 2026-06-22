@@ -7,6 +7,7 @@ import {
   type ConnectionProfile,
   type ConnectionStatusState,
 } from "@/lib/api";
+import { useEditWatchStore } from "@/lib/stores/editWatchStore";
 
 export interface QuickConnectInput {
   host: string;
@@ -33,8 +34,11 @@ export interface ConnectionSession {
 }
 
 export interface PendingHostKey {
-  profile: ConnectionProfile;
   fingerprint: string;
+  host: string;
+  label: string;
+  /** Re-runs the originating connect with the host key now trusted. */
+  retry: () => Promise<string | null>;
 }
 
 interface ConnectionsState {
@@ -52,7 +56,7 @@ interface ConnectionsState {
   connectWithProfile: (profile: ConnectionProfile, trustHostKey?: boolean) => Promise<string | null>;
   confirmHostKey: () => Promise<void>;
   cancelHostKey: () => void;
-  quickConnect: (input: QuickConnectInput) => Promise<string>;
+  quickConnect: (input: QuickConnectInput, trustHostKey?: boolean) => Promise<string | null>;
   disconnectSession: (sessionId: string) => Promise<void>;
   setActiveSession: (id: string | null) => void;
   applyStatus: (connectionId: string, status: ConnectionStatusState, message: string | null) => void;
@@ -127,10 +131,15 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
       });
 
       if (outcome.kind === "hostKeyPrompt") {
-        // Not connected yet — drop the pending session and surface the trust
-        // prompt; the dialog re-calls with trustHostKey on accept.
         dropPending();
-        set({ pendingHostKey: { profile, fingerprint: outcome.fingerprint } });
+        set({
+          pendingHostKey: {
+            fingerprint: outcome.fingerprint,
+            host: profile.host,
+            label: profile.name,
+            retry: () => get().connectWithProfile(profile, true),
+          },
+        });
         return null;
       }
 
@@ -157,17 +166,18 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     const pending = get().pendingHostKey;
     if (!pending) return;
     set({ pendingHostKey: null });
-    await get().connectWithProfile(pending.profile, true);
+    await pending.retry();
   },
 
   cancelHostKey: () => set({ pendingHostKey: null }),
 
-  quickConnect: async (input) => {
+  quickConnect: async (input, trustHostKey) => {
+    const label = `${input.username}@${input.host}`;
     const tempId = `pending-quick-${input.host}-${Date.now()}`;
     const session: ConnectionSession = {
       id: tempId,
       profileId: null,
-      label: `${input.username}@${input.host}`,
+      label,
       host: input.host,
       port: input.port,
       username: input.username,
@@ -178,12 +188,22 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     };
     set((state) => ({ sessions: [...state.sessions, session], activeSessionId: tempId }));
 
+    const dropPending = () =>
+      set((state) => ({ sessions: state.sessions.filter((s) => s.id !== tempId) }));
+
     try {
-      // Quick connect has no saved profile, so host-key TOFU is skipped and
-      // the backend always returns "connected".
-      const outcome = await sftpApi.connect(input);
-      if (outcome.kind !== "connected") {
-        throw new Error("unexpected host key prompt for ad-hoc connection");
+      const outcome = await sftpApi.connect({ ...input, trustHostKey });
+      if (outcome.kind === "hostKeyPrompt") {
+        dropPending();
+        set({
+          pendingHostKey: {
+            fingerprint: outcome.fingerprint,
+            host: input.host,
+            label,
+            retry: () => get().quickConnect(input, true),
+          },
+        });
+        return null;
       }
       const { connectionId, homeDir } = outcome;
       set((state) => ({
@@ -204,6 +224,9 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
   },
 
   disconnectSession: async (sessionId) => {
+    // Drop any external-edit watchers for this session (the backend also tears
+    // down its threads on disconnect; this clears the mirrored frontend state).
+    useEditWatchStore.getState().stopForConnection(sessionId);
     await sftpApi.disconnect(sessionId).catch(() => {});
     set((state) => {
       const sessions = state.sessions.filter((s) => s.id !== sessionId);
