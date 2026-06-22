@@ -1,10 +1,11 @@
 [package]
-name = "app"
+name = "ferry"
 version = "0.5.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "Ferry — a modern SFTP client."
+authors = ["Paul Carouge <contact.carouge@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/Paul-Carouge/Ferry-SFTP"
+homepage = "https://github.com/Paul-Carouge/Ferry-SFTP"
 edition = "2021"
 rust-version = "1.77.2"
 

@@ -29,6 +29,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Paul Carouge",
+    "copyright": "Copyright © 2026 Paul Carouge",
+    "license": "MIT",
+    "category": "DeveloperTool",
+    "shortDescription": "A modern SFTP client.",
+    "longDescription": "Ferry is a modern, fast SFTP client: dual-pane browsing, drag-and-drop transfers with resume, in-place editing, directory compare, and SSH key/agent auth.",
+    "homepage": "https://github.com/Paul-Carouge/Ferry-SFTP",
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
