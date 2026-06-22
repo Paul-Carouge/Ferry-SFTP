@@ -13,6 +13,7 @@ import { SplashScreen } from "@/components/layout/SplashScreen";
 import { ConnectionStatusBar } from "@/components/connection/ConnectionStatusBar";
 import { HostKeyTrustDialog } from "@/components/connection/HostKeyTrustDialog";
 import { ConnectScreen } from "@/components/connection/ConnectScreen";
+import { ConnectingScreen } from "@/components/connection/ConnectingScreen";
 import { DualPane } from "@/components/browser/DualPane";
 import { TransferQueuePanel } from "@/components/transfers/TransferQueuePanel";
 import { ToastStack } from "@/components/common/ToastStack";
@@ -66,6 +67,8 @@ export function AppShell() {
         <main className="flex flex-1 flex-col overflow-hidden">
           {session && session.status === "connected" ? (
             <DualPane key={session.id} session={session} localHome={localHome} />
+          ) : session && session.status === "connecting" ? (
+            <ConnectingScreen session={session} />
           ) : (
             <ConnectScreen />
           )}
