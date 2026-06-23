@@ -101,5 +101,3 @@ src-tauri/src/        Rust backend
   store/              connection profiles + keychain secrets
   transfers/          upload/download queue
 ```
-
-See [`CLAUDE.md`](./CLAUDE.md) for a deeper architecture walkthrough.
